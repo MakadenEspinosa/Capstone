@@ -7,25 +7,24 @@ public sealed class User : Entity
     public Email Email { get; private set; }
     public string PasswordHash { get; private set; }
     public UserProfile Profile { get; private set; }
-    public UserRole Role { get; private set; }
+    public SystemRole SystemRole { get; private set; }
     public UserStatus Status { get; private set; }
 
-    // For EF Core
     private User() { Email = null!; PasswordHash = null!; Profile = null!; }
 
-    private User(Email email, string passwordHash, UserProfile profile, UserRole role)
+    private User(Email email, string passwordHash, UserProfile profile, SystemRole systemRole)
     {
         Email = email;
         PasswordHash = passwordHash;
         Profile = profile;
-        Role = role;
+        SystemRole = systemRole;
         Status = UserStatus.Active;
     }
 
-    public static User Register(Email email, string passwordHash, UserProfile profile, UserRole role = UserRole.Member)
+    public static User Register(Email email, string passwordHash, UserProfile profile, SystemRole systemRole = SystemRole.User)
     {
         if (string.IsNullOrWhiteSpace(passwordHash)) throw new DomainException("Password hash is required.");
-        return new User(email, passwordHash, profile, role);
+        return new User(email, passwordHash, profile, systemRole);
     }
 
     public bool IsActive => Status == UserStatus.Active;
@@ -45,10 +44,10 @@ public sealed class User : Entity
         Touch();
     }
 
-    public void ChangeRole(UserRole role)
+    public void ChangeSystemRole(SystemRole systemRole)
     {
         EnsureNotRemoved();
-        Role = role;
+        SystemRole = systemRole;
         Touch();
     }
 

@@ -14,7 +14,7 @@ public class UserTests
         var user = NewUser();
         Assert.Equal("jane@example.com", user.Email.Value);
         Assert.True(user.IsActive);
-        Assert.Equal(UserRole.Member, user.Role);
+        Assert.Equal(SystemRole.User, user.SystemRole);
     }
 
     [Fact]

@@ -18,7 +18,7 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.HasIndex(u => u.Email).IsUnique();
 
         b.Property(u => u.PasswordHash).IsRequired();
-        b.Property(u => u.Role).HasConversion<string>().HasMaxLength(32);
+        b.Property(u => u.SystemRole).HasConversion<string>().HasMaxLength(32);
         b.Property(u => u.Status).HasConversion<string>().HasMaxLength(32);
 
         b.ComplexProperty(u => u.Profile, p =>
