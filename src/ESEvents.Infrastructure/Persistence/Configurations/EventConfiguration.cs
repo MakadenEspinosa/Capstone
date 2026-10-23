@@ -12,10 +12,10 @@ internal sealed class EventConfiguration : IEntityTypeConfiguration<Event>
         b.HasKey(e => e.Id);
         b.Property(e => e.Title).HasMaxLength(200).IsRequired();
 
-        b.HasMany<EventParticipant>("_participants")
+        b.HasMany(e => e.Participants)
             .WithOne()
             .HasForeignKey(p => p.EventId)
             .OnDelete(DeleteBehavior.Cascade);
-        b.Navigation("_participants").UsePropertyAccessMode(PropertyAccessMode.Field);
+        b.Navigation(e => e.Participants).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }
