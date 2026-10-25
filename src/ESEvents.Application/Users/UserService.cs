@@ -28,6 +28,32 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher, I
         return user is null ? null : UserDto.From(user);
     }
 
+    public async Task<IReadOnlyList<UserDto>> GetAllAsync(CancellationToken ct = default)
+    {
+        var results = await users.GetAllAsync(ct);
+        return results.Select(UserDto.From).ToArray();
+    }
+
+    public async Task<UserDto?> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken ct = default)
+    {
+        var user = await users.GetByIdAsync(id, ct);
+        if (user is null) return null;
+
+        user.UpdateProfile(UserProfile.Create(request.FirstName, request.LastName, request.PhoneNumber, request.Bio));
+        await uow.SaveChangesAsync(ct);
+        return UserDto.From(user);
+    }
+
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    {
+        var user = await users.GetByIdAsync(id, ct);
+        if (user is null) return false;
+
+        user.Remove();
+        await uow.SaveChangesAsync(ct);
+        return true;
+    }
+
     public Task SuspendAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Suspend(), ct);
     public Task ReinstateAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Reinstate(), ct);
     public Task RemoveAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Remove(), ct);

@@ -8,6 +8,10 @@ namespace ESEvents.Web.Controllers;
 [Route("api/users")]
 public sealed class UsersController(IUserService users) : ControllerBase
 {
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<UserDto>>> GetAll(CancellationToken ct) =>
+        Ok(await users.GetAllAsync(ct));
+
     [HttpPost]
     public async Task<ActionResult<UserDto>> Register(RegisterUserRequest request, CancellationToken ct)
     {
@@ -20,5 +24,19 @@ public sealed class UsersController(IUserService users) : ControllerBase
     {
         var user = await users.GetAsync(id, ct);
         return user is null ? NotFound() : user;
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult<UserDto>> Update(Guid id, UpdateUserRequest request, CancellationToken ct)
+    {
+        var user = await users.UpdateAsync(id, request, ct);
+        return user is null ? NotFound() : Ok(user);
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        var deleted = await users.DeleteAsync(id, ct);
+        return deleted ? NoContent() : NotFound();
     }
 }
