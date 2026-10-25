@@ -27,6 +27,26 @@ public sealed class User : Entity
         return new User(email, passwordHash, profile, systemRole);
     }
 
+    public static User Rehydrate(
+        Guid id,
+        Email email,
+        string passwordHash,
+        UserProfile profile,
+        SystemRole systemRole,
+        UserStatus status,
+        DateTime createdAtUtc,
+        DateTime? updatedAtUtc)
+    {
+        var user = new User(email, passwordHash, profile, systemRole)
+        {
+            Id = id,
+            Status = status,
+            CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = updatedAtUtc
+        };
+        return user;
+    }
+
     public bool IsActive => Status == UserStatus.Active;
 
     public void UpdateProfile(UserProfile profile)

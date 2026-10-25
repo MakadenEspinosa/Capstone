@@ -27,6 +27,8 @@ services:
       - CapstoneEsEvents
     expose:
       - "8080"
+    volumes:
+      - dataprotectionkeys:/var/dpkeys
     environment:
       ConnectionStrings__Default: Host=postgresql;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
     depends_on:
@@ -50,6 +52,7 @@ services:
 
 volumes:
   pgdata:
+  dataprotectionkeys:
 
 networks:
   CapstoneEsEvents:

@@ -40,6 +40,7 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher, I
         if (user is null) return null;
 
         user.UpdateProfile(UserProfile.Create(request.FirstName, request.LastName, request.PhoneNumber, request.Bio));
+        await users.UpdateAsync(user, ct);
         await uow.SaveChangesAsync(ct);
         return UserDto.From(user);
     }
@@ -50,6 +51,7 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher, I
         if (user is null) return false;
 
         user.Remove();
+        await users.UpdateAsync(user, ct);
         await uow.SaveChangesAsync(ct);
         return true;
     }
@@ -62,6 +64,7 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher, I
     {
         var user = await users.GetByIdAsync(id, ct) ?? throw new DomainException("User not found.");
         action(user);
+        await users.UpdateAsync(user, ct);
         await uow.SaveChangesAsync(ct);
     }
 }

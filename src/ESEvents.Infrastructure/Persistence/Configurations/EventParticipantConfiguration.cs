@@ -1,5 +1,5 @@
 using ESEvents.Domain.Events;
-using ESEvents.Domain.Users;
+using ESEvents.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -12,6 +12,6 @@ internal sealed class EventParticipantConfiguration : IEntityTypeConfiguration<E
         b.ToTable("event_participants");
         b.HasKey(p => new { p.EventId, p.UserId });
         b.Property(p => p.Role).HasConversion<string>().HasMaxLength(32).IsRequired();
-        b.HasOne<User>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<ApplicationIdentityUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
     }
 }
