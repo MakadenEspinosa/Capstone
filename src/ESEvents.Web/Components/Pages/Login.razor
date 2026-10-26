@@ -1,0 +1,46 @@
+@page "/"
+@page "/ui/login"
+@attribute [AllowAnonymous]
+
+<PageTitle>Sign in | E-S Events</PageTitle>
+<MudPaper Class="page-panel" Elevation="1">
+    <MudText Typo="Typo.h4" GutterBottom="true">Sign in</MudText>
+    @if (Registered)
+    {
+        <MudAlert Severity="Severity.Success" Class="form-alert">Account created. You can sign in now.</MudAlert>
+    }
+    @if (Error)
+    {
+        <MudAlert Severity="Severity.Error" Class="form-alert">Email or password is incorrect.</MudAlert>
+    }
+    <form action="/ui/auth/login" method="post">
+        <AntiforgeryToken />
+        <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+        <label class="form-field">
+            <span>Email</span>
+            <input name="Email" type="email" autocomplete="username" required />
+        </label>
+        <label class="form-field field-gap">
+            <span>Password</span>
+            <input name="Password" type="password" autocomplete="current-password" required />
+        </label>
+        <label class="check-row"><input type="checkbox" name="RememberMe" value="true" /> Remember me</label>
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="submit-button">Sign in</MudButton>
+    </form>
+    <MudText Class="form-footnote">New here? <a href="/ui/register">Create an account</a></MudText>
+</MudPaper>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? ErrorQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "registered")]
+    public string? RegisteredQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrlQuery { get; set; }
+
+    private bool Error => ErrorQuery == "1";
+    private bool Registered => RegisteredQuery == "1";
+    private string ReturnUrl => string.IsNullOrWhiteSpace(ReturnUrlQuery) ? "/ui/user" : ReturnUrlQuery;
+}

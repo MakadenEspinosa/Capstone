@@ -1,0 +1,102 @@
+@page "/ui/users"
+@attribute [Authorize(Policy = "Administrator")]
+@inject IUserService UserService
+
+<PageTitle>Users | E-S Events</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Users</MudText>
+<MudText Typo="Typo.body2" Class="status-line">@users.Count users</MudText>
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <MudAlert Severity="@messageSeverity" Class="form-alert">@message</MudAlert>
+}
+<MudTable T="UserDto" Items="users" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm" Class="users-table">
+    <HeaderContent>
+        <MudTh>Email</MudTh>
+        <MudTh>Name</MudTh>
+        <MudTh>Role / Status</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate Context="user">
+        <MudTd DataLabel="Email">@user.Email</MudTd>
+        <MudTd DataLabel="Name">
+            @if (editing?.Id == user.Id)
+            {
+                <MudTextField T="string" Label="First name" @bind-Value="editFirstName" Margin="Margin.Dense" />
+                <MudTextField T="string" Label="Last name" @bind-Value="editLastName" Margin="Margin.Dense" />
+                <MudTextField T="string" Label="Phone" @bind-Value="editPhoneNumber" Margin="Margin.Dense" />
+                <MudTextField T="string" Label="Bio" @bind-Value="editBio" Margin="Margin.Dense" />
+            }
+            else
+            {
+                @user.FirstName @user.LastName
+            }
+        </MudTd>
+        <MudTd DataLabel="Role / Status">@user.SystemRole / @user.Status</MudTd>
+        <MudTd DataLabel="Actions">
+            @if (editing?.Id == user.Id)
+            {
+                <MudButton Size="Size.Small" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+                <MudButton Size="Size.Small" OnClick="CancelEdit">Cancel</MudButton>
+            }
+            else
+            {
+                <MudButton Size="Size.Small" Color="Color.Primary" OnClick="() => BeginEdit(user)">Edit</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(user)">Remove</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+</MudTable>
+
+@code {
+    private IReadOnlyList<UserDto> users = [];
+    private UserDto? editing;
+    private string editFirstName = string.Empty;
+    private string editLastName = string.Empty;
+    private string? editPhoneNumber;
+    private string? editBio;
+    private string? message;
+    private Severity messageSeverity = Severity.Success;
+
+    protected override Task OnInitializedAsync() => LoadUsersAsync();
+
+    private async Task LoadUsersAsync() => users = await UserService.GetAllAsync();
+
+    private void BeginEdit(UserDto user)
+    {
+        editing = user;
+        editFirstName = user.FirstName;
+        editLastName = user.LastName;
+        editPhoneNumber = user.PhoneNumber;
+        editBio = user.Bio;
+    }
+
+    private void CancelEdit() => editing = null;
+
+    private async Task SaveAsync()
+    {
+        if (editing is null)
+            return;
+
+        try
+        {
+            await UserService.UpdateAsync(editing.Id, new UpdateUserRequest(editFirstName, editLastName, editPhoneNumber, editBio));
+            editing = null;
+            message = "User updated.";
+            messageSeverity = Severity.Success;
+            await LoadUsersAsync();
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private async Task DeleteAsync(UserDto user)
+    {
+        await UserService.DeleteAsync(user.Id);
+        message = $"{user.Email} removed.";
+        messageSeverity = Severity.Success;
+        await LoadUsersAsync();
+    }
+}

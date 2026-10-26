@@ -2,9 +2,11 @@ using ESEvents.Application;
 using ESEvents.Infrastructure;
 using ESEvents.Infrastructure.Identity;
 using ESEvents.Web.Middleware;
+using ESEvents.Web.Components;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +14,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddMudServices();
+builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
     .AddCookie(IdentityConstants.ApplicationScheme);
 builder.Services.AddDataProtection()
@@ -70,13 +75,17 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<DomainExceptionMiddleware>();
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 
 app.UseRouting();
 app.UseAuthentication();
 app.UseMiddleware<AntiforgeryValidationMiddleware>();
 app.UseAuthorization();
+app.UseAntiforgery();
 
 app.MapControllers();
+app.MapStaticAssets();
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
 app.Run();
 

@@ -1,0 +1,57 @@
+@page "/ui/register"
+@attribute [AllowAnonymous]
+@inject IUserService Users
+@inject NavigationManager Navigation
+
+<PageTitle>Register | E-S Events</PageTitle>
+<MudPaper Class="page-panel" Elevation="1">
+    <MudText Typo="Typo.h4" GutterBottom="true">Create account</MudText>
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <MudAlert Severity="Severity.Error" Class="form-alert">@errorMessage</MudAlert>
+    }
+    <EditForm Model="form" OnValidSubmit="RegisterAsync">
+        <DataAnnotationsValidator />
+        <MudTextField T="string" Label="Email" @bind-Value="form.Email" InputType="InputType.Email" Required="true" />
+        <MudTextField T="string" Label="First name" @bind-Value="form.FirstName" Required="true" Class="field-gap" />
+        <MudTextField T="string" Label="Last name" @bind-Value="form.LastName" Required="true" Class="field-gap" />
+        <MudTextField T="string" Label="Password (at least 8 characters)" @bind-Value="form.Password" InputType="InputType.Password" Required="true" Class="field-gap" />
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="isSubmitting" Class="submit-button">
+            @(isSubmitting ? "Creating account..." : "Create account")
+        </MudButton>
+    </EditForm>
+    <MudText Class="form-footnote">Already registered? <a href="/ui/login">Sign in</a></MudText>
+</MudPaper>
+
+@code {
+    private RegisterForm form = new();
+    private string? errorMessage;
+    private bool isSubmitting;
+
+    private async Task RegisterAsync()
+    {
+        isSubmitting = true;
+        errorMessage = null;
+        try
+        {
+            await Users.RegisterAsync(new RegisterUserRequest(form.Email, form.Password, form.FirstName, form.LastName));
+            Navigation.NavigateTo("/ui/login?registered=1", forceLoad: true);
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private sealed class RegisterForm
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+    }
+}

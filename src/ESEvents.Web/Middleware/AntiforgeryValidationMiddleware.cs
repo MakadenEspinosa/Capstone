@@ -6,6 +6,12 @@ public sealed class AntiforgeryValidationMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, IAntiforgery antiforgery, ILogger<AntiforgeryValidationMiddleware> logger)
     {
+        if (context.Request.Path.StartsWithSegments("/_blazor"))
+        {
+            await next(context);
+            return;
+        }
+
         if (HttpMethods.IsGet(context.Request.Method) ||
             HttpMethods.IsHead(context.Request.Method) ||
             HttpMethods.IsOptions(context.Request.Method) ||

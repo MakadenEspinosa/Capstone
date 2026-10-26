@@ -1,0 +1,96 @@
+html, body {
+    min-height: 100%;
+    margin: 0;
+    background: #f4f6f8;
+}
+
+body {
+    color: #202a35;
+}
+
+.main-content {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+.page-panel {
+    max-width: 34rem;
+    margin: 2rem auto;
+    padding: 2rem;
+}
+
+.profile-panel {
+    margin-left: 0;
+}
+
+.field-gap {
+    margin-top: 1rem;
+}
+
+.form-field {
+    display: grid;
+    gap: 0.4rem;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+.form-field input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #aeb8c2;
+    border-radius: 4px;
+    background: #fff;
+    color: inherit;
+    font: inherit;
+}
+
+.form-field input:focus {
+    outline: 2px solid #1976d2;
+    outline-offset: 1px;
+}
+
+.submit-button {
+    margin-top: 1.5rem;
+}
+
+.form-alert,
+.page-alert {
+    margin: 1rem 0;
+}
+
+.form-footnote {
+    margin-top: 1.5rem;
+}
+
+.status-line {
+    margin-bottom: 1rem;
+    color: #526170;
+}
+
+.check-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+.inline-form {
+    display: inline-flex;
+}
+
+.users-table {
+    margin-top: 1rem;
+}
+
+@media (max-width: 600px) {
+    .main-content {
+        padding: 1rem;
+    }
+
+    .page-panel {
+        padding: 1.25rem;
+        margin: 1rem auto;
+    }
+}

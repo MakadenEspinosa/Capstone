@@ -1,0 +1,33 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudText Typo="Typo.h6">E-S Events</MudText>
+        <MudSpacer />
+        <AuthorizeView Context="authContext">
+            <Authorized>
+                <MudButton Href="/ui/user" Color="Color.Inherit">My profile</MudButton>
+            <AuthorizeView Policy="Administrator" Context="adminContext">
+                    <MudButton Href="/ui/users" Color="Color.Inherit">Users</MudButton>
+                </AuthorizeView>
+                <form action="/ui/auth/logout" method="post" class="inline-form">
+                    <AntiforgeryToken />
+                    <MudButton ButtonType="ButtonType.Submit" Color="Color.Inherit">Sign out</MudButton>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <MudButton Href="/ui/login" Color="Color.Inherit">Sign in</MudButton>
+                <MudButton Href="/ui/register" Color="Color.Inherit">Register</MudButton>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudAppBar>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="main-content">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>

@@ -1,0 +1,71 @@
+@page "/ui/user"
+@attribute [Authorize]
+@inject IUserService Users
+
+<PageTitle>My profile | E-S Events</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">My profile</MudText>
+@if (profile is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <MudPaper Class="page-panel profile-panel" Elevation="1">
+        <MudText Typo="Typo.subtitle1">@profile.Email</MudText>
+        <MudText Typo="Typo.body2" Class="status-line">@profile.SystemRole · @profile.Status</MudText>
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <MudAlert Severity="@messageSeverity" Class="form-alert">@message</MudAlert>
+        }
+        <MudTextField T="string" Label="First name" @bind-Value="firstName" Required="true" Class="field-gap" />
+        <MudTextField T="string" Label="Last name" @bind-Value="lastName" Required="true" Class="field-gap" />
+        <MudTextField T="string" Label="Phone number" @bind-Value="phoneNumber" Class="field-gap" />
+        <MudTextField T="string" Label="Bio" @bind-Value="bio" Lines="3" Class="field-gap" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Class="submit-button">Save profile</MudButton>
+    </MudPaper>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private UserDto? profile;
+    private Guid userId;
+    private string firstName = string.Empty;
+    private string lastName = string.Empty;
+    private string? phoneNumber;
+    private string? bio;
+    private string? message;
+    private Severity messageSeverity = Severity.Success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateTask;
+        if (!Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out userId))
+            return;
+
+        profile = await Users.GetAsync(userId);
+        if (profile is null)
+            return;
+
+        firstName = profile.FirstName;
+        lastName = profile.LastName;
+        phoneNumber = profile.PhoneNumber;
+        bio = profile.Bio;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            profile = await Users.UpdateAsync(userId, new UpdateUserRequest(firstName, lastName, phoneNumber, bio));
+            message = "Profile saved.";
+            messageSeverity = Severity.Success;
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+}
