@@ -1,6 +1,8 @@
 @page "/ui/user"
 @attribute [Authorize]
 @inject IUserService Users
+@inject IJSRuntime JavaScript
+@inject NavigationManager Navigation
 
 <PageTitle>My profile | E-S Events</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">My profile</MudText>
@@ -22,6 +24,7 @@ else
         <MudTextField T="string" Label="Phone number" @bind-Value="phoneNumber" Class="field-gap" />
         <MudTextField T="string" Label="Bio" @bind-Value="bio" Lines="3" Class="field-gap" />
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Class="submit-button">Save profile</MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DeleteAccountAsync" Class="delete-account-button">Delete my account</MudButton>
     </MudPaper>
 }
 
@@ -61,6 +64,23 @@ else
             profile = await Users.UpdateAsync(userId, new UpdateUserRequest(firstName, lastName, phoneNumber, bio));
             message = "Profile saved.";
             messageSeverity = Severity.Success;
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private async Task DeleteAccountAsync()
+    {
+        if (!await JavaScript.InvokeAsync<bool>("confirm", "Permanently delete your account? This cannot be undone."))
+            return;
+
+        try
+        {
+            await Users.DeleteAsync(userId);
+            Navigation.NavigateTo("/ui/login", forceLoad: true);
         }
         catch (Exception exception)
         {

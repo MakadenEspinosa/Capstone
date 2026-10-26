@@ -1,6 +1,8 @@
 @page "/ui/users"
 @attribute [Authorize(Policy = "Administrator")]
 @inject IUserService UserService
+@inject IJSRuntime JavaScript
+@inject NavigationManager Navigation
 
 <PageTitle>Users | E-S Events</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Users</MudText>
@@ -41,7 +43,10 @@
             else
             {
                 <MudButton Size="Size.Small" Color="Color.Primary" OnClick="() => BeginEdit(user)">Edit</MudButton>
-                <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(user)">Remove</MudButton>
+                @if (user.Id != currentUserId)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(user)">Delete</MudButton>
+                }
             }
         </MudTd>
     </RowTemplate>
@@ -56,8 +61,17 @@
     private string? editBio;
     private string? message;
     private Severity messageSeverity = Severity.Success;
+    private Guid currentUserId;
 
-    protected override Task OnInitializedAsync() => LoadUsersAsync();
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateTask;
+        Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
+        await LoadUsersAsync();
+    }
 
     private async Task LoadUsersAsync() => users = await UserService.GetAllAsync();
 
@@ -94,9 +108,20 @@
 
     private async Task DeleteAsync(UserDto user)
     {
-        await UserService.DeleteAsync(user.Id);
-        message = $"{user.Email} removed.";
-        messageSeverity = Severity.Success;
-        await LoadUsersAsync();
+        if (!await JavaScript.InvokeAsync<bool>("confirm", $"Permanently delete {user.Email}? This cannot be undone."))
+            return;
+
+        try
+        {
+            await UserService.DeleteAsync(user.Id);
+            message = $"{user.Email} permanently deleted.";
+            messageSeverity = Severity.Success;
+            await LoadUsersAsync();
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
     }
 }

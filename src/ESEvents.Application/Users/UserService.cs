@@ -47,19 +47,16 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher, I
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var user = await users.GetByIdAsync(id, ct);
-        if (user is null) return false;
+        var deleted = await users.DeleteAsync(id, ct);
+        if (!deleted)
+            return false;
 
-        user.Remove();
-        await users.UpdateAsync(user, ct);
         await uow.SaveChangesAsync(ct);
         return true;
     }
 
     public Task SuspendAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Suspend(), ct);
     public Task ReinstateAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Reinstate(), ct);
-    public Task RemoveAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Remove(), ct);
-
     private async Task MutateAsync(Guid id, Action<User> action, CancellationToken ct)
     {
         var user = await users.GetByIdAsync(id, ct) ?? throw new DomainException("User not found.");

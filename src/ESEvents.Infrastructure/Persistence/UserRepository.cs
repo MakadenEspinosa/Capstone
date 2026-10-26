@@ -68,6 +68,16 @@ internal sealed class UserRepository(AppDbContext db) : IUserRepository
         identityUser.UpdatedAtUtc = user.UpdatedAtUtc;
     }
 
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+    {
+        var identityUser = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+        if (identityUser is null)
+            return false;
+
+        db.Users.Remove(identityUser);
+        return true;
+    }
+
     private static User ToDomain(ApplicationIdentityUser user) => User.Rehydrate(
         user.Id,
         Email.Create(user.Email),

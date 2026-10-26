@@ -9,5 +9,4 @@ public interface IUserService
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
     Task SuspendAsync(Guid id, CancellationToken ct = default);
     Task ReinstateAsync(Guid id, CancellationToken ct = default);
-    Task RemoveAsync(Guid id, CancellationToken ct = default);
 }
