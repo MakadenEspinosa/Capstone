@@ -20,6 +20,11 @@ internal sealed class UserRepository(AppDbContext db) : IUserRepository
         return user is null ? null : ToDomain(user);
     }
 
+    public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct = default) =>
+        (await db.Users
+            .Where(u => ids.Contains(u.Id) && u.Status != UserStatus.Removed)
+            .ToListAsync(ct)).Select(ToDomain).ToArray();
+
     public async Task<User?> GetByEmailAsync(Email email, CancellationToken ct = default)
     {
         var normalizedEmail = email.Value.ToUpperInvariant();

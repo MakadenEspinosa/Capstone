@@ -1,0 +1,204 @@
+@page "/ui/departments"
+@attribute [Authorize(Policy = "Administrator")]
+@inject IDepartmentService DepartmentService
+@inject IUserService UserService
+@inject IJSRuntime JavaScript
+
+<PageTitle>Departments | E-S Events</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Departments</MudText>
+<MudText Typo="Typo.body2" Class="status-line">@departments.Count departments</MudText>
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <MudAlert Severity="@messageSeverity" Class="form-alert">@message</MudAlert>
+}
+
+<MudPaper Class="page-panel" Elevation="1">
+    <MudText Typo="Typo.subtitle1">New department</MudText>
+    <MudTextField T="string" Label="Name" @bind-Value="newName" MaxLength="100" Class="field-gap" />
+    <MudTextField T="string" Label="Description" @bind-Value="newDescription" MaxLength="500" Class="field-gap" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Class="submit-button">Add department</MudButton>
+</MudPaper>
+
+<MudTable T="DepartmentDto" Items="departments" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm" Class="users-table">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Description</MudTh>
+        <MudTh>Members</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate Context="department">
+        <MudTd DataLabel="Name">
+            @if (editingId == department.Id)
+            {
+                <MudTextField T="string" Label="Name" @bind-Value="editName" MaxLength="100" Margin="Margin.Dense" />
+            }
+            else
+            {
+                @department.Name
+            }
+        </MudTd>
+        <MudTd DataLabel="Description">
+            @if (editingId == department.Id)
+            {
+                <MudTextField T="string" Label="Description" @bind-Value="editDescription" MaxLength="500" Margin="Margin.Dense" />
+            }
+            else
+            {
+                @department.Description
+            }
+        </MudTd>
+        <MudTd DataLabel="Members">@department.MemberCount</MudTd>
+        <MudTd DataLabel="Actions">
+            @if (editingId == department.Id)
+            {
+                <MudButton Size="Size.Small" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+                <MudButton Size="Size.Small" OnClick="CancelEdit">Cancel</MudButton>
+            }
+            else
+            {
+                <MudButton Size="Size.Small" Color="Color.Primary" OnClick="() => ManageMembersAsync(department.Id)">Members</MudButton>
+                <MudButton Size="Size.Small" OnClick="() => BeginEdit(department)">Edit</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => DeleteAsync(department)">Delete</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+</MudTable>
+
+@if (selected is not null)
+{
+    <MudPaper Class="page-panel" Elevation="1">
+        <MudText Typo="Typo.h6">@selected.Name members</MudText>
+        <MudSelect T="Guid?" Label="Add a user" @bind-Value="userToAdd" Class="field-gap" Clearable="true">
+            @foreach (var user in availableUsers)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)user.Id)">@user.FirstName @user.LastName (@user.Email)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddMemberAsync" Disabled="@(userToAdd is null)">Add member</MudButton>
+        <MudButton OnClick="CloseMembers">Close</MudButton>
+
+        @if (selected.Members.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="status-line">No members yet.</MudText>
+        }
+        else
+        {
+            <MudTable T="DepartmentMemberDto" Items="selected.Members" Dense="true" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Email</MudTh>
+                    <MudTh>Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate Context="member">
+                    <MudTd DataLabel="Name">@member.FirstName @member.LastName</MudTd>
+                    <MudTd DataLabel="Email">@member.Email</MudTd>
+                    <MudTd DataLabel="Actions">
+                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => RemoveMemberAsync(member)">Remove</MudButton>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<DepartmentDto> departments = [];
+    private IReadOnlyList<UserDto> allUsers = [];
+    private DepartmentDetailDto? selected;
+    private Guid? userToAdd;
+    private Guid? editingId;
+    private string newName = string.Empty;
+    private string? newDescription;
+    private string editName = string.Empty;
+    private string? editDescription;
+    private string? message;
+    private Severity messageSeverity = Severity.Success;
+
+    private IEnumerable<UserDto> availableUsers =>
+        allUsers.Where(u => selected is null || selected.Members.All(m => m.UserId != u.Id));
+
+    protected override async Task OnInitializedAsync()
+    {
+        allUsers = await UserService.GetAllAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => departments = await DepartmentService.GetAllAsync();
+
+    private async Task RunAsync(Func<Task> action, string successMessage)
+    {
+        try
+        {
+            await action();
+            message = successMessage;
+            messageSeverity = Severity.Success;
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        await DepartmentService.CreateAsync(new CreateDepartmentRequest(newName, newDescription));
+        newName = string.Empty;
+        newDescription = null;
+        await LoadAsync();
+    }, "Department created.");
+
+    private void BeginEdit(DepartmentDto department)
+    {
+        editingId = department.Id;
+        editName = department.Name;
+        editDescription = department.Description;
+    }
+
+    private void CancelEdit() => editingId = null;
+
+    private Task SaveAsync() => RunAsync(async () =>
+    {
+        if (editingId is not { } id) return;
+        await DepartmentService.UpdateAsync(id, new UpdateDepartmentRequest(editName, editDescription));
+        editingId = null;
+        if (selected?.Id == id) selected = await DepartmentService.GetAsync(id);
+        await LoadAsync();
+    }, "Department updated.");
+
+    private async Task DeleteAsync(DepartmentDto department)
+    {
+        if (!await JavaScript.InvokeAsync<bool>("confirm", $"Delete the {department.Name} department? Its members will not be deleted."))
+            return;
+
+        await RunAsync(async () =>
+        {
+            await DepartmentService.DeleteAsync(department.Id);
+            if (selected?.Id == department.Id) selected = null;
+            await LoadAsync();
+        }, $"{department.Name} deleted.");
+    }
+
+    private async Task ManageMembersAsync(Guid id)
+    {
+        userToAdd = null;
+        selected = await DepartmentService.GetAsync(id);
+    }
+
+    private void CloseMembers() => selected = null;
+
+    private Task AddMemberAsync() => RunAsync(async () =>
+    {
+        if (selected is null || userToAdd is not { } userId) return;
+        selected = await DepartmentService.AddMemberAsync(selected.Id, userId);
+        userToAdd = null;
+        await LoadAsync();
+    }, "Member added.");
+
+    private Task RemoveMemberAsync(DepartmentMemberDto member) => RunAsync(async () =>
+    {
+        if (selected is null) return;
+        selected = await DepartmentService.RemoveMemberAsync(selected.Id, member.UserId);
+        await LoadAsync();
+    }, "Member removed.");
+}

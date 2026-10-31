@@ -22,6 +22,58 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("ESEvents.Domain.Departments.Department", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("departments", (string)null);
+                });
+
+            modelBuilder.Entity("ESEvents.Domain.Departments.DepartmentMember", b =>
+                {
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AddedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("DepartmentId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("department_members", (string)null);
+                });
+
             modelBuilder.Entity("ESEvents.Domain.Events.Event", b =>
                 {
                     b.Property<Guid>("Id")
@@ -297,6 +349,21 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("ESEvents.Domain.Departments.DepartmentMember", b =>
+                {
+                    b.HasOne("ESEvents.Domain.Departments.Department", null)
+                        .WithMany("Members")
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ESEvents.Infrastructure.Identity.ApplicationIdentityUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ESEvents.Domain.Events.EventParticipant", b =>
                 {
                     b.HasOne("ESEvents.Domain.Events.Event", null)
@@ -361,6 +428,11 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("ESEvents.Domain.Departments.Department", b =>
+                {
+                    b.Navigation("Members");
                 });
 
             modelBuilder.Entity("ESEvents.Domain.Events.Event", b =>

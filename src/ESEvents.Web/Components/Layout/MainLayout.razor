@@ -13,6 +13,7 @@
                 <MudButton Href="/ui/user" Color="Color.Inherit">My profile</MudButton>
             <AuthorizeView Policy="Administrator" Context="adminContext">
                     <MudButton Href="/ui/users" Color="Color.Inherit">Users</MudButton>
+                    <MudButton Href="/ui/departments" Color="Color.Inherit">Departments</MudButton>
                 </AuthorizeView>
                 <form action="/ui/auth/logout" method="post" class="inline-form">
                     <AntiforgeryToken />
