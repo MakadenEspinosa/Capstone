@@ -11,6 +11,14 @@ internal sealed class EventConfiguration : IEntityTypeConfiguration<Event>
         b.ToTable("events");
         b.HasKey(e => e.Id);
         b.Property(e => e.Title).HasMaxLength(200).IsRequired();
+        b.Property(e => e.StartsAtUtc).IsRequired();
+        b.Property(e => e.EndsAtUtc).IsRequired();
+        b.Property(e => e.IsAllDay).IsRequired();
+        b.HasIndex(e => new { e.StartsAtUtc, e.EndsAtUtc });
+        b.HasOne<Domain.Departments.Department>()
+            .WithMany()
+            .HasForeignKey(e => e.DepartmentId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         b.HasMany(e => e.Participants)
             .WithOne()

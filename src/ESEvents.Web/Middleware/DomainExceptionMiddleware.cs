@@ -10,6 +10,10 @@ public sealed class DomainExceptionMiddleware(RequestDelegate next)
         {
             await next(context);
         }
+        catch (UnauthorizedAccessException)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        }
         catch (DomainException ex)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;

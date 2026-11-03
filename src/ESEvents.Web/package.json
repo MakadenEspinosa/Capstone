@@ -1,0 +1,10 @@
+{
+  "name": "esevents-web-assets",
+  "private": true,
+  "dependencies": {
+    "@fullcalendar/core": "6.1.22",
+    "@fullcalendar/daygrid": "6.1.22",
+    "@fullcalendar/interaction": "6.1.22",
+    "@fullcalendar/timegrid": "6.1.22"
+  }
+}

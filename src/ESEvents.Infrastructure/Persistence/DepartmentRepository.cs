@@ -16,6 +16,9 @@ internal sealed class DepartmentRepository(AppDbContext db) : IDepartmentReposit
             .OrderBy(d => d.Name)
             .ToListAsync(ct);
 
+    public Task<bool> IsMemberAsync(Guid departmentId, Guid userId, CancellationToken ct = default) =>
+        db.Departments.AnyAsync(d => d.Id == departmentId && d.Members.Any(m => m.UserId == userId), ct);
+
     public Task<Department?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
         db.Departments.Include(d => d.Members).FirstOrDefaultAsync(d => d.Id == id, ct);
 

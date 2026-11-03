@@ -89,6 +89,87 @@ body {
     margin-top: 1rem;
 }
 
+.calendar-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.calendar-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+    align-items: start;
+    gap: 1.25rem;
+}
+
+.calendar-surface {
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid #d5dce2;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.calendar-editor {
+    padding: 1.25rem;
+}
+
+.calendar-editor-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.calendar-input {
+    display: grid;
+    gap: 0.4rem;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+.calendar-input input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid #aeb8c2;
+    border-radius: 4px;
+    background: #fff;
+    color: inherit;
+    font: inherit;
+}
+
+.calendar-input input:focus {
+    outline: 2px solid #1976d2;
+    outline-offset: 1px;
+}
+
+.calendar-role {
+    display: block;
+    margin-top: 1rem;
+    color: #526170;
+}
+
+.calendar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+
+.calendar-surface .fc .fc-button-primary {
+    border-color: #315d70;
+    background-color: #315d70;
+}
+
+.calendar-surface .fc .fc-button-primary:hover,
+.calendar-surface .fc .fc-button-primary:focus {
+    border-color: #234655;
+    background-color: #234655;
+}
+
 @media (max-width: 600px) {
     .main-content {
         padding: 1rem;
@@ -98,4 +179,29 @@ body {
         padding: 1.25rem;
         margin: 1rem auto;
     }
+
+    .calendar-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .calendar-heading {
+        flex-direction: column;
+    }
+
+    .calendar-surface {
+        padding: 0.5rem;
+    }
+}
+
+.calendar-divider {
+    margin: 1.25rem 0;
+}
+
+.calendar-participant-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 8rem auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #e1e6ea;
 }

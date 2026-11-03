@@ -1,0 +1,384 @@
+@page "/ui/calendar"
+@attribute [Authorize]
+@implements IAsyncDisposable
+@inject IEventService EventService
+@inject IDepartmentService DepartmentService
+@inject IUserService UserService
+@inject IJSRuntime JavaScript
+
+<PageTitle>Calendar | E-S Events</PageTitle>
+<div class="calendar-heading">
+    <div>
+        <MudText Typo="Typo.h4" GutterBottom="true">Event calendar</MudText>
+        <MudText Typo="Typo.body2" Class="status-line">Events for you, your event roles, and your departments</MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="BeginCreate">
+        New event
+    </MudButton>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <MudAlert Severity="@messageSeverity" Class="form-alert">@message</MudAlert>
+}
+
+<div class="calendar-layout">
+    <section class="calendar-surface" aria-label="Calendar">
+        <div @ref="calendarElement"></div>
+    </section>
+
+    @if (showEditor)
+    {
+        <MudPaper Class="calendar-editor" Elevation="1">
+            <div class="calendar-editor-heading">
+                <MudText Typo="Typo.h6">@(editingId is null ? "New event" : canManageSelected ? "Edit event" : "Event details")</MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="Close event details" OnClick="CloseEditor" />
+            </div>
+            @if (!canManageSelected)
+            {
+                <MudText Typo="Typo.body2" Class="status-line">You can view this event but only its organizers or an administrator can edit it.</MudText>
+            }
+            <MudTextField T="string" Label="Event title" @bind-Value="title" Disabled="@(!canManageSelected)" Required="true" MaxLength="200" Class="field-gap" />
+            <label class="calendar-input">
+                <span>Starts</span>
+                <input type="datetime-local" value="@startLocal" @onchange="args => startLocal = args.Value?.ToString() ?? string.Empty" disabled="@(!canManageSelected)" />
+            </label>
+            <label class="calendar-input">
+                <span>Ends</span>
+                <input type="datetime-local" value="@endLocal" @onchange="args => endLocal = args.Value?.ToString() ?? string.Empty" disabled="@(!canManageSelected)" />
+            </label>
+            <MudCheckBox T="bool" Label="All-day event" @bind-Value="allDay" Disabled="@(!canManageSelected)" />
+            <MudSelect T="Guid?" Label="Department" @bind-Value="departmentId" Clearable="true" Disabled="@(!canManageSelected)" Class="field-gap">
+                @foreach (var department in departments)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)department.Id)">@department.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @if (selectedEvent is not null)
+            {
+                <MudText Typo="Typo.caption" Class="calendar-role">
+                    Your event role: @(selectedEvent.CurrentUserRole?.ToString() ?? (isAdministrator ? "Administrator" : "Department member"))
+                </MudText>
+                @if (canManageSelected)
+                {
+                    <MudDivider Class="calendar-divider" />
+                    <MudText Typo="Typo.subtitle2">Participants</MudText>
+                    <MudSelect T="Guid?" Label="Add a user" @bind-Value="participantToAdd" Clearable="true" Class="field-gap">
+                        @foreach (var user in availableParticipants)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)user.Id)">@user.FirstName @user.LastName (@user.Email)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSelect T="EventRole" Label="Event role" @bind-Value="participantRole" Class="field-gap">
+                        <MudSelectItem T="EventRole" Value="@EventRole.Member">Member</MudSelectItem>
+                        <MudSelectItem T="EventRole" Value="@EventRole.Organizer">Organizer</MudSelectItem>
+                    </MudSelect>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="AddParticipantAsync" Disabled="@(participantToAdd is null)">Add participant</MudButton>
+                    @foreach (var participant in selectedEvent.Participants)
+                    {
+                        <div class="calendar-participant-row">
+                            <MudText Typo="Typo.body2">@ParticipantName(participant.UserId)</MudText>
+                            <MudSelect T="EventRole" Value="participant.Role" ValueChanged="@(role => ChangeParticipantRoleAsync(participant.UserId, role))" Dense="true">
+                                <MudSelectItem T="EventRole" Value="@EventRole.Member">Member</MudSelectItem>
+                                <MudSelectItem T="EventRole" Value="@EventRole.Organizer">Organizer</MudSelectItem>
+                            </MudSelect>
+                            <MudIconButton Icon="@Icons.Material.Filled.PersonRemove" aria-label="Remove participant" Color="Color.Error" OnClick="() => RemoveParticipantAsync(participant.UserId)" />
+                        </div>
+                    }
+                }
+            }
+            @if (canManageSelected)
+            {
+                <div class="calendar-actions">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save event</MudButton>
+                    @if (editingId is not null)
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DeleteAsync">Delete</MudButton>
+                    }
+                </div>
+            }
+        </MudPaper>
+    }
+</div>
+
+@code {
+    private ElementReference calendarElement;
+    private DotNetObjectReference<Calendar>? dotNetReference;
+    private IReadOnlyList<DepartmentDto> departments = [];
+    private IReadOnlyList<UserDto> users = [];
+    private CalendarEventDto? selectedEvent;
+    private Guid userId;
+    private Guid? editingId;
+    private Guid? departmentId;
+    private Guid? participantToAdd;
+    private EventRole participantRole = EventRole.Member;
+    private string title = string.Empty;
+    private string startLocal = string.Empty;
+    private string endLocal = string.Empty;
+    private bool allDay;
+    private bool isAdministrator;
+    private bool canManageSelected;
+    private bool showEditor;
+    private string? message;
+    private Severity messageSeverity = Severity.Info;
+    private IEnumerable<UserDto> availableParticipants => users.Where(u =>
+        selectedEvent is null || selectedEvent.Participants.All(p => p.UserId != u.Id));
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateTask;
+        if (!Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out userId))
+            return;
+
+        isAdministrator = state.User.HasClaim("system_role", "Administrator");
+        departments = isAdministrator
+            ? await DepartmentService.GetAllAsync()
+            : await DepartmentService.GetForUserAsync(userId);
+        users = await UserService.GetAllAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || userId == Guid.Empty)
+            return;
+
+        dotNetReference = DotNetObjectReference.Create(this);
+        await JavaScript.InvokeVoidAsync("eseventsCalendar.init", calendarElement, dotNetReference);
+    }
+
+    [JSInvokable]
+    public async Task<CalendarEventDto[]> LoadEvents(string rangeStart, string rangeEnd)
+    {
+        var start = DateTimeOffset.Parse(rangeStart, CultureInfo.InvariantCulture);
+        var end = DateTimeOffset.Parse(rangeEnd, CultureInfo.InvariantCulture);
+        return (await EventService.GetCalendarEventsAsync(userId, isAdministrator, start, end)).ToArray();
+    }
+
+    [JSInvokable]
+    public async Task CreateEventAt(string startIso, string endIso, bool isAllDay)
+    {
+        ResetEditor();
+        editingId = null;
+        canManageSelected = true;
+        allDay = isAllDay;
+        startLocal = await JavaScript.InvokeAsync<string>("eseventsCalendar.toLocalDateTime", startIso);
+        endLocal = await JavaScript.InvokeAsync<string>("eseventsCalendar.toLocalDateTime", endIso);
+        showEditor = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task SelectEvent(string eventId)
+    {
+        if (!Guid.TryParse(eventId, out var id)) return;
+        try
+        {
+            selectedEvent = await EventService.GetAsync(id, userId, isAdministrator);
+            if (selectedEvent is null) return;
+
+            participantToAdd = null;
+            editingId = selectedEvent.Id;
+            title = selectedEvent.Title;
+            startLocal = await JavaScript.InvokeAsync<string>("eseventsCalendar.toLocalDateTime", selectedEvent.Start.ToString("O"));
+            endLocal = await JavaScript.InvokeAsync<string>("eseventsCalendar.toLocalDateTime", selectedEvent.End.ToString("O"));
+            allDay = selectedEvent.AllDay;
+            departmentId = selectedEvent.DepartmentId;
+            canManageSelected = selectedEvent.CanManage;
+            showEditor = true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            message = "You do not have access to this event.";
+            messageSeverity = Severity.Warning;
+        }
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task<bool> UpdateEventTime(string eventId, string startIso, string endIso, bool isAllDay)
+    {
+        if (!Guid.TryParse(eventId, out var id)) return false;
+        try
+        {
+            var current = await EventService.GetAsync(id, userId, isAdministrator);
+            if (current is null || !current.CanManage) return false;
+
+            await EventService.UpdateAsync(id, userId, isAdministrator, new UpdateEventRequest(
+                current.Title,
+                DateTimeOffset.Parse(startIso, CultureInfo.InvariantCulture),
+                DateTimeOffset.Parse(endIso, CultureInfo.InvariantCulture),
+                isAllDay,
+                current.DepartmentId));
+            message = "Event time updated.";
+            messageSeverity = Severity.Success;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+            await InvokeAsync(StateHasChanged);
+            return false;
+        }
+    }
+
+    private async Task BeginCreate()
+    {
+        ResetEditor();
+        editingId = null;
+        canManageSelected = true;
+        var localNow = await JavaScript.InvokeAsync<string>("eseventsCalendar.toLocalDateTime", DateTimeOffset.UtcNow.ToString("O"));
+        var now = DateTime.ParseExact(localNow, "yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+        var rounded = now.AddMinutes(-(now.Minute % 15));
+        startLocal = rounded.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+        endLocal = rounded.AddHours(1).ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+        showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var startIso = await JavaScript.InvokeAsync<string>("eseventsCalendar.toUtcIso", startLocal);
+            var endIso = await JavaScript.InvokeAsync<string>("eseventsCalendar.toUtcIso", endLocal);
+            var start = DateTimeOffset.Parse(startIso, CultureInfo.InvariantCulture);
+            var end = DateTimeOffset.Parse(endIso, CultureInfo.InvariantCulture);
+
+            if (editingId is { } id)
+            {
+                await EventService.UpdateAsync(id, userId, isAdministrator,
+                    new UpdateEventRequest(title, start, end, allDay, departmentId));
+                message = "Event updated.";
+            }
+            else
+            {
+                await EventService.CreateAsync(userId, isAdministrator,
+                    new CreateEventRequest(title, start, end, allDay, departmentId, []));
+                message = "Event created.";
+            }
+
+            messageSeverity = Severity.Success;
+            showEditor = false;
+            selectedEvent = null;
+            await JavaScript.InvokeVoidAsync("eseventsCalendar.refresh");
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = exception is UnauthorizedAccessException ? Severity.Error : Severity.Warning;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (editingId is not { } id || !canManageSelected) return;
+        if (!await JavaScript.InvokeAsync<bool>("confirm", $"Delete '{title}'?")) return;
+
+        try
+        {
+            await EventService.DeleteAsync(id, userId, isAdministrator);
+            message = "Event deleted.";
+            messageSeverity = Severity.Success;
+            showEditor = false;
+            selectedEvent = null;
+            await JavaScript.InvokeVoidAsync("eseventsCalendar.refresh");
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private string ParticipantName(Guid id)
+    {
+        var user = users.FirstOrDefault(u => u.Id == id);
+        return user is null ? "Unavailable account" : $"{user.FirstName} {user.LastName} ({user.Email})";
+    }
+
+    private async Task AddParticipantAsync()
+    {
+        if (editingId is not { } id || participantToAdd is not { } participantId) return;
+        try
+        {
+            selectedEvent = await EventService.AddParticipantAsync(id, userId, isAdministrator, participantId, participantRole);
+            participantToAdd = null;
+            message = "Participant added.";
+            messageSeverity = Severity.Success;
+            await JavaScript.InvokeVoidAsync("eseventsCalendar.refresh");
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private async Task ChangeParticipantRoleAsync(Guid participantId, EventRole role)
+    {
+        if (editingId is not { } id) return;
+        try
+        {
+            selectedEvent = await EventService.ChangeParticipantRoleAsync(id, userId, isAdministrator, participantId, role);
+            message = "Event role updated.";
+            messageSeverity = Severity.Success;
+            await JavaScript.InvokeVoidAsync("eseventsCalendar.refresh");
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private async Task RemoveParticipantAsync(Guid participantId)
+    {
+        if (editingId is not { } id) return;
+        try
+        {
+            selectedEvent = await EventService.RemoveParticipantAsync(id, userId, isAdministrator, participantId);
+            message = "Participant removed.";
+            messageSeverity = Severity.Success;
+            await JavaScript.InvokeVoidAsync("eseventsCalendar.refresh");
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private void CloseEditor()
+    {
+        showEditor = false;
+        selectedEvent = null;
+    }
+
+    private void ResetEditor()
+    {
+        selectedEvent = null;
+        title = string.Empty;
+        departmentId = null;
+        allDay = false;
+        message = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (dotNetReference is null)
+            return;
+
+        try
+        {
+            await JavaScript.InvokeVoidAsync("eseventsCalendar.destroy");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        dotNetReference?.Dispose();
+    }
+}

@@ -7,20 +7,57 @@ public sealed class Event : Entity
     private readonly List<EventParticipant> _participants = [];
 
     public string Title { get; private set; } = null!;
+    public DateTimeOffset StartsAtUtc { get; private set; }
+    public DateTimeOffset EndsAtUtc { get; private set; }
+    public bool IsAllDay { get; private set; }
+    public Guid? DepartmentId { get; private set; }
     public IReadOnlyCollection<EventParticipant> Participants => _participants;
 
     private Event() { }
 
     private Event(string title) => Title = title;
 
-    public static Event Create(string title, Guid organizerUserId)
+    public static Event Create(
+        string title,
+        DateTimeOffset startsAt,
+        DateTimeOffset endsAt,
+        bool isAllDay,
+        Guid organizerUserId,
+        Guid? departmentId = null)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new DomainException("Event title is required.");
         if (organizerUserId == Guid.Empty) throw new DomainException("An organizer is required.");
+        ValidateSchedule(startsAt, endsAt);
+        if (departmentId == Guid.Empty) throw new DomainException("Department id cannot be empty.");
 
-        var @event = new Event(title.Trim());
+        var @event = new Event(title.Trim())
+        {
+            StartsAtUtc = startsAt.ToUniversalTime(),
+            EndsAtUtc = endsAt.ToUniversalTime(),
+            IsAllDay = isAllDay,
+            DepartmentId = departmentId
+        };
         @event.AddParticipant(organizerUserId, EventRole.Organizer);
         return @event;
+    }
+
+    public void UpdateDetails(
+        string title,
+        DateTimeOffset startsAt,
+        DateTimeOffset endsAt,
+        bool isAllDay,
+        Guid? departmentId)
+    {
+        if (string.IsNullOrWhiteSpace(title)) throw new DomainException("Event title is required.");
+        ValidateSchedule(startsAt, endsAt);
+        if (departmentId == Guid.Empty) throw new DomainException("Department id cannot be empty.");
+
+        Title = title.Trim();
+        StartsAtUtc = startsAt.ToUniversalTime();
+        EndsAtUtc = endsAt.ToUniversalTime();
+        IsAllDay = isAllDay;
+        DepartmentId = departmentId;
+        Touch();
     }
 
     public void AddParticipant(Guid userId, EventRole role = EventRole.Member)
@@ -59,5 +96,11 @@ public sealed class Event : Entity
         if (participant.Role == EventRole.Organizer &&
             !_participants.Any(p => p.UserId != participant.UserId && p.Role == EventRole.Organizer))
             throw new DomainException("An event must have at least one organizer.");
+    }
+
+    private static void ValidateSchedule(DateTimeOffset startsAt, DateTimeOffset endsAt)
+    {
+        if (endsAt <= startsAt)
+            throw new DomainException("Event end must be after its start.");
     }
 }

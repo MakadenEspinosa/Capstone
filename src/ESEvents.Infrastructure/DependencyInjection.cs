@@ -1,5 +1,6 @@
 using ESEvents.Application.Abstractions;
 using ESEvents.Application.Departments;
+using ESEvents.Application.Events;
 using ESEvents.Application.Users;
 using ESEvents.Infrastructure.Identity;
 using ESEvents.Infrastructure.Persistence;
@@ -35,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
+        services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<IPasswordHasher, IdentityPasswordHasher>();
         return services;
     }

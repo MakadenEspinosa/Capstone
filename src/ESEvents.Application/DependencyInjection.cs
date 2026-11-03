@@ -1,4 +1,5 @@
 using ESEvents.Application.Departments;
+using ESEvents.Application.Events;
 using ESEvents.Application.Users;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,6 +11,7 @@ public static class DependencyInjection
     {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IDepartmentService, DepartmentService>();
+        services.AddScoped<IEventService, EventService>();
         return services;
     }
 }
