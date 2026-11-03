@@ -16,6 +16,43 @@ public sealed class DepartmentService(
     public async Task<IReadOnlyList<DepartmentDto>> GetForUserAsync(Guid userId, CancellationToken ct = default) =>
         (await departments.GetForUserAsync(userId, ct)).Select(DepartmentDto.From).ToArray();
 
+    public async Task<IReadOnlyList<DepartmentDto>> SetForUserAsync(
+        Guid userId,
+        IReadOnlyCollection<Guid> departmentIds,
+        CancellationToken ct = default)
+    {
+        var user = await users.GetByIdAsync(userId, ct) ?? throw new DomainException("User not found.");
+        if (!user.IsActive) throw new DomainException("Only active users can be assigned to departments.");
+
+        var requestedIds = departmentIds.ToHashSet();
+        if (requestedIds.Contains(Guid.Empty)) throw new DomainException("Department id cannot be empty.");
+
+        var currentDepartments = await departments.GetForUserAsync(userId, ct);
+        var currentById = currentDepartments.ToDictionary(d => d.Id);
+        var requestedDepartments = new Dictionary<Guid, Department>();
+
+        foreach (var departmentId in requestedIds)
+        {
+            if (currentById.TryGetValue(departmentId, out var currentDepartment))
+            {
+                requestedDepartments.Add(departmentId, currentDepartment);
+                continue;
+            }
+
+            var department = await departments.GetByIdAsync(departmentId, ct)
+                ?? throw new DomainException("One or more selected departments no longer exist.");
+            requestedDepartments.Add(departmentId, department);
+        }
+
+        foreach (var department in currentDepartments.Where(d => !requestedIds.Contains(d.Id)))
+            department.RemoveMember(userId);
+        foreach (var department in requestedDepartments.Values.Where(d => !currentById.ContainsKey(d.Id)))
+            department.AddMember(userId);
+
+        await uow.SaveChangesAsync(ct);
+        return (await departments.GetForUserAsync(userId, ct)).Select(DepartmentDto.From).ToArray();
+    }
+
     public async Task<DepartmentDetailDto?> GetAsync(Guid id, CancellationToken ct = default)
     {
         var department = await departments.GetByIdAsync(id, ct);

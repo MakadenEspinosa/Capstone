@@ -89,6 +89,10 @@ body {
     margin-top: 1rem;
 }
 
+.user-search {
+    max-width: 32rem;
+}
+
 .calendar-heading {
     display: flex;
     align-items: flex-start;

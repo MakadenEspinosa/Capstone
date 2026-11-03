@@ -71,7 +71,7 @@
         <MudSelect T="Guid?" Label="Add a user" @bind-Value="userToAdd" Class="field-gap" Clearable="true">
             @foreach (var user in availableUsers)
             {
-                <MudSelectItem T="Guid?" Value="@((Guid?)user.Id)">@user.FirstName @user.LastName (@user.Email)</MudSelectItem>
+                <MudSelectItem T="Guid?" Value="@((Guid?)user.Id)">@($"{user.FirstName} {user.LastName} ({user.Email})")</MudSelectItem>
             }
         </MudSelect>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddMemberAsync" Disabled="@(userToAdd is null)">Add member</MudButton>
@@ -90,7 +90,7 @@
                     <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate Context="member">
-                    <MudTd DataLabel="Name">@member.FirstName @member.LastName</MudTd>
+                    <MudTd DataLabel="Name">@($"{member.FirstName} {member.LastName}")</MudTd>
                     <MudTd DataLabel="Email">@member.Email</MudTd>
                     <MudTd DataLabel="Actions">
                         <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => RemoveMemberAsync(member)">Remove</MudButton>

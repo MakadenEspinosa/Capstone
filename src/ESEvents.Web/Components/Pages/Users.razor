@@ -1,21 +1,32 @@
 @page "/ui/users"
 @attribute [Authorize(Policy = "Administrator")]
 @inject IUserService UserService
+@inject IDepartmentService DepartmentService
 @inject IJSRuntime JavaScript
 @inject NavigationManager Navigation
 
 <PageTitle>Users | E-S Events</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Users</MudText>
-<MudText Typo="Typo.body2" Class="status-line">@users.Count users</MudText>
+<MudTextField T="string"
+              Label="Search users"
+              Placeholder="Email or name"
+              @bind-Value="searchText"
+              Immediate="true"
+              Clearable="true"
+              Adornment="Adornment.Start"
+              AdornmentIcon="@Icons.Material.Filled.Search"
+              Class="user-search" />
+<MudText Typo="Typo.body2" Class="status-line">@filteredUsers.Count of @users.Count users</MudText>
 @if (!string.IsNullOrWhiteSpace(message))
 {
     <MudAlert Severity="@messageSeverity" Class="form-alert">@message</MudAlert>
 }
-<MudTable T="UserDto" Items="users" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm" Class="users-table">
+<MudTable T="UserDto" Items="filteredUsers" Hover="true" Dense="true" Breakpoint="Breakpoint.Sm" Class="users-table">
     <HeaderContent>
         <MudTh>Email</MudTh>
         <MudTh>Name</MudTh>
         <MudTh>Role / Status</MudTh>
+        <MudTh>Departments</MudTh>
         <MudTh>Actions</MudTh>
     </HeaderContent>
     <RowTemplate Context="user">
@@ -30,10 +41,15 @@
             }
             else
             {
-                @user.FirstName @user.LastName
+                @($"{user.FirstName} {user.LastName}")
             }
         </MudTd>
         <MudTd DataLabel="Role / Status">@user.SystemRole / @user.Status</MudTd>
+        <MudTd DataLabel="Departments">
+            <MudButton Size="Size.Small" Color="Color.Primary" OnClick="() => ManageDepartmentsAsync(user)">
+                Manage departments
+            </MudButton>
+        </MudTd>
         <MudTd DataLabel="Actions">
             @if (editing?.Id == user.Id)
             {
@@ -52,16 +68,64 @@
     </RowTemplate>
 </MudTable>
 
+@if (departmentUser is not null)
+{
+    <MudPaper Class="page-panel" Elevation="1">
+        <div class="calendar-editor-heading">
+            <MudText Typo="Typo.h6">@($"Departments for {departmentUser.FirstName} {departmentUser.LastName}")</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="Close department assignment" OnClick="CloseDepartmentEditor" />
+        </div>
+        <MudText Typo="Typo.body2" Class="status-line">Select every department this user should belong to.</MudText>
+        @if (departments.Count == 0)
+        {
+            <MudText Typo="Typo.body2">No departments have been created.</MudText>
+        }
+        else
+        {
+            @foreach (var department in departments)
+            {
+                <MudCheckBox T="bool"
+                             Label="@department.Name"
+                             Value="@selectedDepartmentIds.Contains(department.Id)"
+                             ValueChanged="@(selected => ToggleDepartment(department.Id, selected))" />
+            }
+        }
+        <div class="calendar-actions">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveDepartmentsAsync" Disabled="@(departmentUser.Status != UserStatus.Active)">
+                Save departments
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="CloseDepartmentEditor">Cancel</MudButton>
+        </div>
+        @if (departmentUser.Status != UserStatus.Active)
+        {
+            <MudText Typo="Typo.caption" Class="status-line">Only active users can be assigned to departments.</MudText>
+        }
+    </MudPaper>
+}
+
 @code {
     private IReadOnlyList<UserDto> users = [];
+    private IReadOnlyList<DepartmentDto> departments = [];
+    private UserDto? departmentUser;
+    private HashSet<Guid> selectedDepartmentIds = [];
     private UserDto? editing;
     private string editFirstName = string.Empty;
     private string editLastName = string.Empty;
     private string? editPhoneNumber;
     private string? editBio;
     private string? message;
+    private string searchText = string.Empty;
     private Severity messageSeverity = Severity.Success;
     private Guid currentUserId;
+
+    private IReadOnlyList<UserDto> filteredUsers => string.IsNullOrWhiteSpace(searchText)
+        ? users
+        : users.Where(user =>
+                user.Email.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                user.FirstName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                user.LastName.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                $"{user.FirstName} {user.LastName}".Contains(searchText, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
     [CascadingParameter]
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
@@ -70,6 +134,7 @@
     {
         var state = await AuthenticationStateTask;
         Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
+        departments = await DepartmentService.GetAllAsync();
         await LoadUsersAsync();
     }
 
@@ -85,6 +150,41 @@
     }
 
     private void CancelEdit() => editing = null;
+
+    private async Task ManageDepartmentsAsync(UserDto user)
+    {
+        departmentUser = user;
+        var memberships = await DepartmentService.GetForUserAsync(user.Id);
+        selectedDepartmentIds = memberships.Select(d => d.Id).ToHashSet();
+    }
+
+    private void ToggleDepartment(Guid departmentId, bool selected)
+    {
+        if (selected)
+            selectedDepartmentIds.Add(departmentId);
+        else
+            selectedDepartmentIds.Remove(departmentId);
+    }
+
+    private void CloseDepartmentEditor() => departmentUser = null;
+
+    private async Task SaveDepartmentsAsync()
+    {
+        if (departmentUser is null) return;
+
+        try
+        {
+            await DepartmentService.SetForUserAsync(departmentUser.Id, selectedDepartmentIds);
+            message = $"Departments updated for {departmentUser.Email}.";
+            messageSeverity = Severity.Success;
+            departmentUser = null;
+        }
+        catch (Exception exception)
+        {
+            message = exception.Message;
+            messageSeverity = Severity.Error;
+        }
+    }
 
     private async Task SaveAsync()
     {
