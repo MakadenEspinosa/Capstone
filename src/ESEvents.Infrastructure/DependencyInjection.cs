@@ -1,8 +1,10 @@
 using ESEvents.Application.Abstractions;
 using ESEvents.Application.Departments;
 using ESEvents.Application.Events;
+using ESEvents.Application.Notifications;
 using ESEvents.Application.Users;
 using ESEvents.Infrastructure.Identity;
+using ESEvents.Infrastructure.Mail;
 using ESEvents.Infrastructure.Persistence;
 using ESEvents.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
@@ -37,6 +39,10 @@ public static class DependencyInjection
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IEventRepository, EventRepository>();
+        services.AddScoped<IOutboxRepository, OutboxRepository>();
+        services.Configure<EmailOptions>(config.GetSection("Email"));
+        services.AddScoped<IEmailSender, SmtpEmailSender>();
+        services.AddHostedService<OutboxProcessor>();
         services.AddScoped<IPasswordHasher, IdentityPasswordHasher>();
         return services;
     }

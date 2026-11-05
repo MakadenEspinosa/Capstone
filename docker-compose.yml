@@ -19,6 +19,16 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  mailpit:
+    # Development mail catcher: accepts any mail on SMTP 1025 (internal only) and shows it at http://localhost:8025.
+    # Replace with a real SMTP provider (Email__Host etc.) in production.
+    image: axllent/mailpit:v1.33.0
+    networks:
+      - CapstoneEsEvents
+    ports:
+      - "127.0.0.1:8025:8025"
+    restart: unless-stopped
+
   userapi:
     build:
       context: .
@@ -31,9 +41,13 @@ services:
       - dataprotectionkeys:/var/dpkeys
     environment:
       ConnectionStrings__Default: Host=postgresql;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Email__Host: mailpit
+      Email__Port: "1025"
     depends_on:
       postgresql:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     restart: unless-stopped
 
   nginx:

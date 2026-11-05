@@ -35,7 +35,55 @@ public class EventTests
         var @event = NewEvent();
 
         Assert.Throws<DomainException>(() => @event.UpdateDetails(
-            "Changed", DateTimeOffset.UtcNow.AddHours(1), DateTimeOffset.UtcNow, false, null));
+            "Changed", DateTimeOffset.UtcNow.AddHours(1), DateTimeOffset.UtcNow, false, null, null));
+    }
+
+    [Fact]
+    public void Create_TrimsDescription_AndTreatsBlankAsNone()
+    {
+        var start = DateTimeOffset.Parse("2026-11-02T10:00:00Z");
+        var withText = Event.Create("Planning", start, start.AddHours(1), false, Guid.NewGuid(), null, "  Quarterly review  ");
+        var blank = Event.Create("Planning", start, start.AddHours(1), false, Guid.NewGuid(), null, "   ");
+
+        Assert.Equal("Quarterly review", withText.Description);
+        Assert.Null(blank.Description);
+        Assert.Null(NewEvent().Description);
+    }
+
+    [Fact]
+    public void Create_RejectsTooLongDescription()
+    {
+        var start = DateTimeOffset.Parse("2026-11-02T10:00:00Z");
+
+        Assert.Throws<DomainException>(() => Event.Create(
+            "Planning", start, start.AddHours(1), false, Guid.NewGuid(), null, new string('x', Event.MaxDescriptionLength + 1)));
+    }
+
+    [Fact]
+    public void UpdateDetails_ChangesAndClearsDescription()
+    {
+        var @event = NewEvent();
+        var start = @event.StartsAtUtc;
+
+        @event.UpdateDetails("Planning", start, start.AddHours(1), false, null, "New agenda");
+        Assert.Equal("New agenda", @event.Description);
+
+        @event.UpdateDetails("Planning", start, start.AddHours(1), false, null, null);
+        Assert.Null(@event.Description);
+    }
+
+    [Fact]
+    public void UpdateDetails_InvalidDescription_LeavesEventUnchanged()
+    {
+        var @event = NewEvent();
+        var start = @event.StartsAtUtc;
+        @event.UpdateDetails("Planning", start, start.AddHours(1), false, null, "Original");
+
+        Assert.Throws<DomainException>(() => @event.UpdateDetails(
+            "Renamed", start, start.AddHours(1), false, null, new string('x', Event.MaxDescriptionLength + 1)));
+
+        Assert.Equal("Planning", @event.Title);
+        Assert.Equal("Original", @event.Description);
     }
 
     [Fact]

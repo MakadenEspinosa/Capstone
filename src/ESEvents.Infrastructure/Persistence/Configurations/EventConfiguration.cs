@@ -11,6 +11,7 @@ internal sealed class EventConfiguration : IEntityTypeConfiguration<Event>
         b.ToTable("events");
         b.HasKey(e => e.Id);
         b.Property(e => e.Title).HasMaxLength(200).IsRequired();
+        b.Property(e => e.Description).HasMaxLength(Event.MaxDescriptionLength);
         b.Property(e => e.StartsAtUtc).IsRequired();
         b.Property(e => e.EndsAtUtc).IsRequired();
         b.Property(e => e.IsAllDay).IsRequired();

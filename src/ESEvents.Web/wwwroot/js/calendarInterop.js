@@ -52,6 +52,7 @@ window.eseventsCalendar = (() => {
                             allDay: event.allDay,
                             editable: event.canManage,
                             extendedProps: {
+                                description: event.description,
                                 canManage: event.canManage,
                                 departmentId: event.departmentId,
                                 currentUserRole: event.currentUserRole
@@ -73,6 +74,10 @@ window.eseventsCalendar = (() => {
                 },
                 eventClick: async info => {
                     await dotNetReference.invokeMethodAsync("SelectEvent", info.event.id);
+                },
+                eventDidMount: info => {
+                    const description = info.event.extendedProps.description;
+                    info.el.title = description ? `${info.event.title}\n${description}` : info.event.title;
                 },
                 eventDrop: info => persistMovedEvent(info, dotNetReference),
                 eventResize: info => persistMovedEvent(info, dotNetReference)

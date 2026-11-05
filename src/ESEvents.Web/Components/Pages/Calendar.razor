@@ -39,6 +39,11 @@
                 <MudText Typo="Typo.body2" Class="status-line">You can view this event but only its organizers or an administrator can edit it.</MudText>
             }
             <MudTextField T="string" Label="Event title" @bind-Value="title" Disabled="@(!canManageSelected)" Required="true" MaxLength="200" Class="field-gap" />
+            @if (canManageSelected || !string.IsNullOrWhiteSpace(description))
+            {
+                <MudTextField T="string" Label="Description (optional)" @bind-Value="description" Disabled="@(!canManageSelected)"
+                              Lines="3" MaxLength="1000" Counter="1000" Class="field-gap" />
+            }
             <label class="calendar-input">
                 <span>Starts</span>
                 <input type="datetime-local" value="@startLocal" @onchange="args => startLocal = args.Value?.ToString() ?? string.Empty" disabled="@(!canManageSelected)" />
@@ -113,6 +118,7 @@
     private Guid? participantToAdd;
     private EventRole participantRole = EventRole.Member;
     private string title = string.Empty;
+    private string? description;
     private string startLocal = string.Empty;
     private string endLocal = string.Empty;
     private bool allDay;
@@ -182,6 +188,7 @@
             participantToAdd = null;
             editingId = selectedEvent.Id;
             title = selectedEvent.Title;
+            description = selectedEvent.Description;
             startLocal = await JavaScript.InvokeAsync<string>("eseventsCalendar.toLocalDateTime", selectedEvent.Start.ToString("O"));
             endLocal = await JavaScript.InvokeAsync<string>("eseventsCalendar.toLocalDateTime", selectedEvent.End.ToString("O"));
             allDay = selectedEvent.AllDay;
@@ -211,7 +218,8 @@
                 DateTimeOffset.Parse(startIso, CultureInfo.InvariantCulture),
                 DateTimeOffset.Parse(endIso, CultureInfo.InvariantCulture),
                 isAllDay,
-                current.DepartmentId));
+                current.DepartmentId,
+                current.Description));
             message = "Event time updated.";
             messageSeverity = Severity.Success;
             return true;
@@ -250,13 +258,13 @@
             if (editingId is { } id)
             {
                 await EventService.UpdateAsync(id, userId, isAdministrator,
-                    new UpdateEventRequest(title, start, end, allDay, departmentId));
+                    new UpdateEventRequest(title, start, end, allDay, departmentId, description));
                 message = "Event updated.";
             }
             else
             {
                 await EventService.CreateAsync(userId, isAdministrator,
-                    new CreateEventRequest(title, start, end, allDay, departmentId, []));
+                    new CreateEventRequest(title, start, end, allDay, departmentId, [], description));
                 message = "Event created.";
             }
 
@@ -361,6 +369,7 @@
     {
         selectedEvent = null;
         title = string.Empty;
+        description = null;
         departmentId = null;
         allDay = false;
         message = null;

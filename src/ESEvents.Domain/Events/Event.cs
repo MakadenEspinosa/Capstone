@@ -4,9 +4,12 @@ namespace ESEvents.Domain.Events;
 
 public sealed class Event : Entity
 {
+    public const int MaxDescriptionLength = 1000;
+
     private readonly List<EventParticipant> _participants = [];
 
     public string Title { get; private set; } = null!;
+    public string? Description { get; private set; }
     public DateTimeOffset StartsAtUtc { get; private set; }
     public DateTimeOffset EndsAtUtc { get; private set; }
     public bool IsAllDay { get; private set; }
@@ -23,7 +26,8 @@ public sealed class Event : Entity
         DateTimeOffset endsAt,
         bool isAllDay,
         Guid organizerUserId,
-        Guid? departmentId = null)
+        Guid? departmentId = null,
+        string? description = null)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new DomainException("Event title is required.");
         if (organizerUserId == Guid.Empty) throw new DomainException("An organizer is required.");
@@ -32,6 +36,7 @@ public sealed class Event : Entity
 
         var @event = new Event(title.Trim())
         {
+            Description = NormalizeDescription(description),
             StartsAtUtc = startsAt.ToUniversalTime(),
             EndsAtUtc = endsAt.ToUniversalTime(),
             IsAllDay = isAllDay,
@@ -46,13 +51,16 @@ public sealed class Event : Entity
         DateTimeOffset startsAt,
         DateTimeOffset endsAt,
         bool isAllDay,
-        Guid? departmentId)
+        Guid? departmentId,
+        string? description)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new DomainException("Event title is required.");
         ValidateSchedule(startsAt, endsAt);
         if (departmentId == Guid.Empty) throw new DomainException("Department id cannot be empty.");
+        var normalizedDescription = NormalizeDescription(description);
 
         Title = title.Trim();
+        Description = normalizedDescription;
         StartsAtUtc = startsAt.ToUniversalTime();
         EndsAtUtc = endsAt.ToUniversalTime();
         IsAllDay = isAllDay;
@@ -102,5 +110,13 @@ public sealed class Event : Entity
     {
         if (endsAt <= startsAt)
             throw new DomainException("Event end must be after its start.");
+    }
+
+    private static string? NormalizeDescription(string? description)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        if (trimmed is { Length: > MaxDescriptionLength })
+            throw new DomainException($"Event description cannot exceed {MaxDescriptionLength} characters.");
+        return trimmed;
     }
 }

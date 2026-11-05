@@ -11,6 +11,7 @@ public sealed class EventService(
     IEventRepository events,
     IUserRepository users,
     IDepartmentRepository departments,
+    IEventNotifier notifier,
     IUnitOfWork uow) : IEventService
 {
     public async Task<IReadOnlyList<CalendarEventDto>> GetCalendarEventsAsync(
@@ -47,7 +48,8 @@ public sealed class EventService(
         if (request.DepartmentId is { } departmentId && !isAdministrator &&
             !await departments.IsMemberAsync(departmentId, creatorUserId, ct))
             throw new UnauthorizedAccessException("You must belong to the department to schedule an event for it.");
-        var @event = Event.Create(request.Title, request.Start, request.End, request.AllDay, creatorUserId, request.DepartmentId);
+        var @event = Event.Create(
+            request.Title, request.Start, request.End, request.AllDay, creatorUserId, request.DepartmentId, request.Description);
 
         var participantIds = request.ParticipantUserIds ?? [];
         var activeUsers = await users.GetByIdsAsync(participantIds, ct);
@@ -57,6 +59,7 @@ public sealed class EventService(
         foreach (var participantId in participantIds.Where(id => id != creatorUserId))
             @event.AddParticipant(participantId);
 
+        await notifier.NotifyInvitedAsync(@event, creatorUserId, @event.Participants.Select(p => p.UserId).ToArray(), ct);
         await events.AddAsync(@event, ct);
         await uow.SaveChangesAsync(ct);
         return CalendarEventDto.From(@event, creatorUserId, isAdministrator);
@@ -77,7 +80,10 @@ public sealed class EventService(
             !await departments.IsMemberAsync(departmentId, userId, ct))
             throw new UnauthorizedAccessException("You must belong to the department to tag an event with it.");
 
-        @event.UpdateDetails(request.Title, request.Start, request.End, request.AllDay, request.DepartmentId);
+        var before = EventSnapshot.From(@event);
+
+        @event.UpdateDetails(request.Title, request.Start, request.End, request.AllDay, request.DepartmentId, request.Description);
+        await notifier.NotifyUpdatedAsync(@event, before, userId, ct);
         await uow.SaveChangesAsync(ct);
         return CalendarEventDto.From(@event, userId, isAdministrator);
     }
@@ -87,6 +93,7 @@ public sealed class EventService(
         var @event = await events.GetByIdAsync(id, ct);
         if (@event is null) return false;
         EnsureCanManage(@event, userId, isAdministrator);
+        await notifier.NotifyCancelledAsync(@event, userId, ct);
         await events.RemoveAsync(@event, ct);
         await uow.SaveChangesAsync(ct);
         return true;
@@ -106,6 +113,7 @@ public sealed class EventService(
         EnsureValidRole(role);
         await EnsureActiveUserAsync(participantUserId, ct);
         @event.AddParticipant(participantUserId, role);
+        await notifier.NotifyInvitedAsync(@event, userId, [participantUserId], ct);
         await uow.SaveChangesAsync(ct);
         return CalendarEventDto.From(@event, userId, isAdministrator);
     }

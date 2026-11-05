@@ -1,6 +1,7 @@
 using ESEvents.Application.Abstractions;
 using ESEvents.Domain.Departments;
 using ESEvents.Domain.Events;
+using ESEvents.Domain.Notifications;
 using ESEvents.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
@@ -13,6 +14,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 {
     public DbSet<Event> Events => Set<Event>();
     public DbSet<Department> Departments => Set<Department>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

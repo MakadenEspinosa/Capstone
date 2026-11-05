@@ -203,9 +203,14 @@ body {
 
 .calendar-participant-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 8rem auto;
-    gap: 0.5rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.25rem 0.5rem;
     align-items: center;
-    padding: 0.4rem 0;
+    padding: 0.6rem 0;
     border-bottom: 1px solid #e1e6ea;
+}
+
+.calendar-participant-row > .mud-typography {
+    grid-column: 1 / -1;
+    overflow-wrap: anywhere;
 }

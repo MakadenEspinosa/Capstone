@@ -8,14 +8,16 @@ public sealed record CreateEventRequest(
     DateTimeOffset End,
     bool AllDay,
     Guid? DepartmentId,
-    IReadOnlyList<Guid>? ParticipantUserIds);
+    IReadOnlyList<Guid>? ParticipantUserIds,
+    string? Description = null);
 
 public sealed record UpdateEventRequest(
     string Title,
     DateTimeOffset Start,
     DateTimeOffset End,
     bool AllDay,
-    Guid? DepartmentId);
+    Guid? DepartmentId,
+    string? Description);
 
 public sealed record UpdateEventParticipantRequest(EventRole Role);
 
@@ -24,6 +26,7 @@ public sealed record EventParticipantDto(Guid UserId, EventRole Role);
 public sealed record CalendarEventDto(
     Guid Id,
     string Title,
+    string? Description,
     DateTimeOffset Start,
     DateTimeOffset End,
     bool AllDay,
@@ -35,6 +38,7 @@ public sealed record CalendarEventDto(
     public static CalendarEventDto From(Event @event, Guid currentUserId, bool isAdministrator) => new(
         @event.Id,
         @event.Title,
+        @event.Description,
         @event.StartsAtUtc,
         @event.EndsAtUtc,
         @event.IsAllDay,
