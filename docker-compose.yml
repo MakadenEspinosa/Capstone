@@ -1,4 +1,4 @@
-services:
+﻿services:
   postgresql:
     image: postgres:17
     networks:
@@ -17,6 +17,30 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    restart: unless-stopped
+
+  cassandra:
+    image: cassandra:5.0
+    networks:
+      - CapstoneEsEvents
+    ports:
+      - "127.0.0.1:9042:9042"
+      - "127.0.0.1:9160:9160"
+    environment:
+      CASSANDRA_CLUSTER_NAME: "ESEvents"
+      CASSANDRA_NUM_TOKENS: 256
+      CASSANDRA_LISTEN_ADDRESS: cassandra
+      CASSANDRA_RPC_ADDRESS: 0.0.0.0
+      CASSANDRA_SEEDS: cassandra
+      CASSANDRA_ENDPOINT_SNITCH: SimpleSnitch
+    volumes:
+      - cassandradata:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspace system"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     restart: unless-stopped
 
   mailpit:
@@ -64,6 +88,7 @@ services:
 
 volumes:
   pgdata:
+  cassandradata:
   dataprotectionkeys:
 
 networks:

@@ -1,3 +1,4 @@
+using ESEvents.Application.Chat;
 using ESEvents.Application.Departments;
 using ESEvents.Application.Events;
 using ESEvents.Application.Users;
@@ -13,6 +14,7 @@ public static class DependencyInjection
         services.AddScoped<IDepartmentService, DepartmentService>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IEventNotifier, EventNotifier>();
+        services.AddScoped<IChatService, ChatService>();
         return services;
     }
 }

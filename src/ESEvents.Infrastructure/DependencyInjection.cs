@@ -1,4 +1,5 @@
 using ESEvents.Application.Abstractions;
+using ESEvents.Application.Chat;
 using ESEvents.Application.Departments;
 using ESEvents.Application.Events;
 using ESEvents.Application.Notifications;
@@ -6,6 +7,8 @@ using ESEvents.Application.Users;
 using ESEvents.Infrastructure.Identity;
 using ESEvents.Infrastructure.Mail;
 using ESEvents.Infrastructure.Persistence;
+using ESEvents.Infrastructure.Persistence.Cassandra;
+using ESEvents.Infrastructure.Persistence.Chat;
 using ESEvents.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -44,6 +47,17 @@ public static class DependencyInjection
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddHostedService<OutboxProcessor>();
         services.AddScoped<IPasswordHasher, IdentityPasswordHasher>();
+        
+        // Add Cassandra services for chat logs
+        services.AddSingleton<CassandraSessionFactory>();
+        services.AddSingleton<CassandraSchemaInitializer>();
+        services.AddHealthChecks().AddCheck<CassandraHealthCheck>("Cassandra");
+        services.AddHostedService<CassandraStartupService>();
+        
+        // Register Chat repository
+        services.AddScoped<IChatRepository, ChatRepository>();
+        
         return services;
     }
 }
+
