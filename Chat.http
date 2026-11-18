@@ -1,0 +1,84 @@
+@baseUrl = http://localhost:8080
+@cookies = replace-with-all-cookies-from-your-authenticated-session
+@companyId = replace-with-company-id
+@otherUserId = replace-with-another-active-company-member-id
+@csrfToken = copy-request-token-from-csrf-response
+
+### Get a CSRF request token before authenticated writes
+GET {{baseUrl}}/api/auth/csrf
+
+### Get the authenticated user's companies
+GET {{baseUrl}}/api/companies
+Cookie: {{cookies}}
+
+### Create a company (system administrator only)
+POST {{baseUrl}}/api/companies
+Content-Type: application/json
+Cookie: {{cookies}}
+X-CSRF-TOKEN: {{csrfToken}}
+
+{
+  "name": "Example Company"
+}
+
+### Get company details
+GET {{baseUrl}}/api/companies/{{companyId}}
+Cookie: {{cookies}}
+
+### List other active company members
+GET {{baseUrl}}/api/companies/{{companyId}}/members
+Cookie: {{cookies}}
+
+### Add an active user to a company (system administrator only)
+PUT {{baseUrl}}/api/companies/{{companyId}}/members/{{otherUserId}}
+Cookie: {{cookies}}
+X-CSRF-TOKEN: {{csrfToken}}
+
+### Remove a user from a company (system administrator only)
+DELETE {{baseUrl}}/api/companies/{{companyId}}/members/{{otherUserId}}
+Cookie: {{cookies}}
+X-CSRF-TOKEN: {{csrfToken}}
+
+### Create or retrieve a one-to-one conversation
+POST {{baseUrl}}/api/chat/conversations
+Content-Type: application/json
+Cookie: {{cookies}}
+X-CSRF-TOKEN: {{csrfToken}}
+
+{
+  "companyId": "{{companyId}}",
+  "otherUserId": "{{otherUserId}}"
+}
+
+### List conversations for a company
+GET {{baseUrl}}/api/chat/conversations?companyId={{companyId}}
+Cookie: {{cookies}}
+
+### Load message history
+GET {{baseUrl}}/api/chat/conversations/{{otherUserId}}?companyId={{companyId}}&pageSize=50
+Cookie: {{cookies}}
+
+### Send a message (sender ID is taken from the authenticated principal)
+POST {{baseUrl}}/api/chat/messages
+Content-Type: application/json
+Cookie: {{cookies}}
+X-CSRF-TOKEN: {{csrfToken}}
+
+{
+  "companyId": "{{companyId}}",
+  "receiverId": "{{otherUserId}}",
+  "content": "Hello from the chat API."
+}
+
+### Mark the conversation as read
+POST {{baseUrl}}/api/chat/conversations/{{otherUserId}}/read?companyId={{companyId}}
+Cookie: {{cookies}}
+X-CSRF-TOKEN: {{csrfToken}}
+
+### Get total unread message count
+GET {{baseUrl}}/api/chat/unread-count?companyId={{companyId}}
+Cookie: {{cookies}}
+
+### Get unread counts by sender
+GET {{baseUrl}}/api/chat/unread-summary?companyId={{companyId}}
+Cookie: {{cookies}}

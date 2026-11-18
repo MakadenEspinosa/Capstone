@@ -26,6 +26,7 @@ public class CassandraSessionFactory : IAsyncDisposable
 
     /// <summary>
     /// Gets or creates the Cassandra session with lazy initialization.
+    /// Must have cluster initialized before calling.
     /// </summary>
     public async Task<ISession> GetSessionAsync()
     {
@@ -35,8 +36,12 @@ public class CassandraSessionFactory : IAsyncDisposable
             {
                 if (_session?.IsDisposed != false)
                 {
-                    _session = _cluster?.Connect() 
-                        ?? throw new InvalidOperationException("Cluster not initialized");
+                    if (_cluster is null)
+                        throw new InvalidOperationException("Cluster not initialized. Call InitializeAsync first.");
+
+                    // Always connect WITHOUT keyspace
+                    // Keyspace will be specified in CQL statements when needed
+                    _session = _cluster.Connect();
                 }
             }
         }
@@ -46,7 +51,7 @@ public class CassandraSessionFactory : IAsyncDisposable
 
     /// <summary>
     /// Initializes the Cassandra cluster connection.
-    /// Must be called during application startup.
+    /// Must be called during application startup, BEFORE creating sessions.
     /// </summary>
     public async Task InitializeAsync()
     {
@@ -67,9 +72,8 @@ public class CassandraSessionFactory : IAsyncDisposable
                     ?? throw new InvalidOperationException("Cassandra configuration not found");
 
                 _logger.LogInformation(
-                    "Initializing Cassandra cluster: {ContactPoints}, Keyspace: {Keyspace}",
-                    string.Join(", ", options.ContactPoints),
-                    options.Keyspace);
+                    "Initializing Cassandra cluster: {ContactPoints}",
+                    string.Join(", ", options.ContactPoints));
 
                 var poolingOptions = new PoolingOptions()
                     .SetCoreConnectionsPerHost(HostDistance.Local, 4)
@@ -81,7 +85,7 @@ public class CassandraSessionFactory : IAsyncDisposable
                 var builder = Cluster.Builder()
                     .AddContactPoints(options.ContactPoints)
                     .WithPort(options.Port)
-                    .WithDefaultKeyspace(options.Keyspace)
+                    // DO NOT set default keyspace here - it doesn't exist yet
                     .WithPoolingOptions(poolingOptions);
 
                 // Configure consistency level using query options

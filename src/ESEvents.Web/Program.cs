@@ -1,8 +1,11 @@
 using ESEvents.Application;
+using ESEvents.Application.Chat;
 using ESEvents.Infrastructure;
 using ESEvents.Infrastructure.Identity;
 using ESEvents.Web.Middleware;
 using ESEvents.Web.Components;
+using ESEvents.Web.Hubs;
+using ESEvents.Web.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -16,6 +19,12 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddMudServices();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<ChatCircuitRegistry>();
+builder.Services.AddScoped<IChatNotifier, SignalRChatNotifier>();
+
+builder.Services.AddScoped<ISignalRService, SignalRService>();
+
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
     .AddCookie(IdentityConstants.ApplicationScheme);
@@ -84,8 +93,8 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapControllers();
+app.MapHub<ChatHub>("/hubs/chat");
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
 app.Run();
-

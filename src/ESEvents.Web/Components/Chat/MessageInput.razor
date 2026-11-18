@@ -1,0 +1,180 @@
+@using System.ComponentModel.DataAnnotations
+@implements IDisposable
+
+<MudPaper Class="message-input-container" Elevation="1">
+    <MudForm @ref="form" Class="message-input-form">
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End" Class="pa-4">
+            <!-- Attachments Button -->
+            <MudTooltip Title="Attach file (Coming soon)">
+                <MudIconButton Icon="@Icons.Material.Filled.AttachFile" 
+                               Color="Color.Default" 
+                               Disabled="true" />
+            </MudTooltip>
+
+            <!-- Message Input -->
+            <MudTextField @ref="messageInput"
+                         @bind-Value="messageContent"
+                         Placeholder="Type a message..."
+                         Variant="Variant.Outlined"
+                         Size="Size.Small"
+                         FullWidth="true"
+                         MaxLines="4"
+                         Immediate="true"
+                         Counter="5000"
+                         MaxLength="5000"
+                         OnKeyDown="HandleKeyDown"
+                         Disabled="!IsConnected || IsLoading"
+                         Class="flex-grow-1" />
+
+            <!-- Send Button -->
+            <MudButton OnClick="SendMessageAsync"
+                       Disabled="!IsConnected || IsLoading || string.IsNullOrWhiteSpace(messageContent)"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary">
+                @if (IsLoading)
+                {
+                    <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mr-2" />
+                    <span>Sending</span>
+                }
+                else
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.Send" />
+                }
+            </MudButton>
+
+            <!-- Voice Message Button -->
+            <MudTooltip Title="Send voice message (Coming soon)">
+                <MudIconButton Icon="@Icons.Material.Filled.Mic" 
+                               Color="Color.Default" 
+                               Disabled="true" />
+            </MudTooltip>
+        </MudStack>
+    </MudForm>
+
+    <!-- Connection Status Bar -->
+    @if (!IsConnected)
+    {
+        <MudAlert Severity="Severity.Error" Dense="true" Class="ma-2 mb-0">
+            <MudText Typo="Typo.caption">
+                <MudIcon Icon="@Icons.Material.Filled.Warning" Class="mr-1" />
+                Not connected. Reconnecting...
+            </MudText>
+        </MudAlert>
+    }
+</MudPaper>
+
+@code {
+    [Parameter]
+    public EventCallback<string> OnSendMessage { get; set; }
+
+    [Parameter]
+    public EventCallback OnTyping { get; set; }
+
+    [Parameter]
+    public bool IsConnected { get; set; } = false;
+
+    [Parameter]
+    public bool IsLoading { get; set; } = false;
+
+    private MudForm form;
+    private MudTextField<string> messageInput;
+    private string messageContent = "";
+    private bool isTypingIndicatorShown = false;
+    private CancellationTokenSource? typingReset;
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(messageContent))
+            return;
+
+        try
+        {
+            var message = messageContent.Trim();
+            await OnSendMessage.InvokeAsync(message);
+            messageContent = "";
+            isTypingIndicatorShown = false;
+            typingReset?.Cancel();
+            
+            // Focus input for next message
+            if (messageInput != null)
+            {
+                await messageInput.FocusAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error sending message: {ex.Message}");
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if ((e.CtrlKey || e.MetaKey) && e.Key == "Enter")
+        {
+            await SendMessageAsync();
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(messageContent))
+        {
+            if (!isTypingIndicatorShown)
+            {
+                isTypingIndicatorShown = true;
+                await OnTyping.InvokeAsync();
+            }
+            ScheduleTypingReset();
+        }
+    }
+
+    private void ScheduleTypingReset()
+    {
+        typingReset?.Cancel();
+        var reset = new CancellationTokenSource();
+        typingReset = reset;
+        _ = ResetTypingIndicatorAsync(reset);
+    }
+
+    private async Task ResetTypingIndicatorAsync(CancellationTokenSource reset)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), reset.Token);
+            await InvokeAsync(() =>
+            {
+                if (!ReferenceEquals(typingReset, reset)) return;
+                typingReset = null;
+                isTypingIndicatorShown = false;
+            });
+        }
+        catch (OperationCanceledException) when (reset.IsCancellationRequested) { }
+        finally { reset.Dispose(); }
+    }
+
+    public void Dispose()
+    {
+        typingReset?.Cancel();
+    }
+}
+
+<style>
+.message-input-container {
+    flex-shrink: 0;
+    border-top: 1px solid var(--mud-palette-divider);
+}
+
+.message-input-form {
+    width: 100%;
+}
+
+.flex-grow-1 {
+    flex: 1;
+}
+
+:global(.message-input-container .mud-text-field) {
+    margin: 0;
+}
+
+:global(.message-input-container .mud-input-helper-text) {
+    padding-right: 12px;
+}
+</style>

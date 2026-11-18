@@ -1,5 +1,7 @@
 using ESEvents.Application.Abstractions;
 using ESEvents.Domain.Departments;
+using ESEvents.Domain.Chat;
+using ESEvents.Domain.Companies;
 using ESEvents.Domain.Events;
 using ESEvents.Domain.Notifications;
 using ESEvents.Infrastructure.Identity;
@@ -14,6 +16,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 {
     public DbSet<Event> Events => Set<Event>();
     public DbSet<Department> Departments => Set<Department>();
+    public DbSet<Company> Companies => Set<Company>();
+    public DbSet<Conversation> ChatConversations => Set<Conversation>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -15,7 +15,9 @@ RUN dotnet publish src/ESEvents.Web/ESEvents.Web.csproj -c Release -o /app/publi
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+COPY src/ESEvents.Web/appsettings.Docker.json ./appsettings.Production.json
 RUN mkdir -p /var/dpkeys && chown $APP_UID:$APP_UID /var/dpkeys
 USER $APP_UID
 EXPOSE 8080
+ENV ASPNETCORE_ENVIRONMENT=Production
 ENTRYPOINT ["dotnet", "ESEvents.Web.dll"]

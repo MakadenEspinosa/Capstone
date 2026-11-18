@@ -2,6 +2,7 @@
 **/obj
 **/node_modules
 **/.vs
+MessagePlanning
 .git
 .env
 tests

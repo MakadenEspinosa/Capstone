@@ -6,6 +6,8 @@ namespace ESEvents.Application.Chat;
 public class ChatMessageDto
 {
     public Guid Id { get; set; }
+    public Guid ConversationId { get; set; }
+    public Guid CompanyId { get; set; }
     public Guid SenderId { get; set; }
     public Guid ReceiverId { get; set; }
     public string Content { get; set; } = string.Empty;
@@ -20,9 +22,20 @@ public class ChatMessageDto
 /// </summary>
 public class SendMessageRequest
 {
+    public Guid CompanyId { get; set; }
     public Guid ReceiverId { get; set; }
     public string Content { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Request to start or retrieve a one-to-one conversation.
+/// </summary>
+public sealed record CreateConversationRequest(Guid CompanyId, Guid OtherUserId);
+
+/// <summary>
+/// Result of starting a conversation.
+/// </summary>
+public sealed record CreateConversationResponse(ConversationDto Conversation, bool Created);
 
 /// <summary>
 /// Response after sending a message successfully.
@@ -40,13 +53,16 @@ public class SendMessageResponse
 public class ConversationDto
 {
     public Guid Id { get; set; }
+    public Guid CompanyId { get; set; }
     public Guid OtherUserId { get; set; }
     public string OtherUserName { get; set; } = string.Empty;
     public string? OtherUserAvatarUrl { get; set; }
     public DateTime? LastMessageAtUtc { get; set; }
+    public DateTime LastMessageTimestamp { get; set; }
     public string? LastMessagePreview { get; set; }
     public int UnreadCount { get; set; }
     public bool IsArchived { get; set; }
+    public bool IsOnline { get; set; }
 }
 
 /// <summary>
@@ -70,6 +86,7 @@ public class GetConversationResponse
     public int PageNumber { get; set; }
     public int PageSize { get; set; }
     public bool HasNextPage { get; set; }
+    public long? NextPageToken { get; set; }
 }
 
 /// <summary>

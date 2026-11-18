@@ -1,0 +1,279 @@
+@using ESEvents.Application.Chat
+@implements IDisposable
+
+<MudPaper Class="chat-window-container" Elevation="0">
+    <!-- Chat Header -->
+    <MudStack Class="chat-header pa-4 bb-1" Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudAvatar Size="Size.Medium" Color="Color.Primary" Class="font-weight-bold">
+            @(Conversation?.OtherUserName.FirstOrDefault())
+        </MudAvatar>
+
+        <MudStack Spacing="0" Style="flex: 1;">
+            <MudText Typo="Typo.subtitle1" Class="font-weight-bold">
+                @Conversation?.OtherUserName
+            </MudText>
+            <MudText Typo="Typo.caption" Color="Color.Default">
+                @(Conversation?.IsOnline == true ? "Online" : "Offline")
+            </MudText>
+        </MudStack>
+
+        <!-- Header Actions -->
+        <MudIconButton Icon="@Icons.Material.Filled.Call" Color="Color.Default" Size="Size.Small" />
+        <MudIconButton Icon="@Icons.Material.Filled.VideoCall" Color="Color.Default" Size="Size.Small" />
+        <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Default" Size="Size.Small" />
+    </MudStack>
+
+    <!-- Messages Container -->
+    <div Class="messages-container">
+        @if (IsLoading && Messages.Count == 0)
+        {
+            <MudStack AlignItems="AlignItems.Center" Class="d-flex justify-center" Style="height: 100%;">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                <MudText Typo="Typo.caption">Loading messages...</MudText>
+            </MudStack>
+        }
+        else if (Messages.Count == 0)
+        {
+            <MudStack AlignItems="AlignItems.Center" Class="d-flex justify-center" Style="height: 100%;">
+                <MudIcon Icon="@Icons.Material.Filled.ChatBubbleOutline" Style="font-size: 3rem; opacity: 0.3;" />
+                <MudText Typo="Typo.subtitle2" Color="Color.Default">
+                    No messages yet. Start the conversation!
+                </MudText>
+            </MudStack>
+        }
+        else
+        {
+            <!-- Load More Button -->
+            @if (OnLoadMore.HasDelegate)
+            {
+                <div Class="load-more-button">
+                    <MudButton Variant="Variant.Text" 
+                               OnClick="() => OnLoadMore.InvokeAsync()"
+                               Disabled="IsLoading"
+                               Size="Size.Small"
+                               Color="Color.Primary">
+                        @if (IsLoading)
+                        {
+                            <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mr-2" />
+                            <span>Loading...</span>
+                        }
+                        else
+                        {
+                            <span>Load Earlier Messages</span>
+                        }
+                    </MudButton>
+                </div>
+            }
+
+            <!-- Messages List -->
+            @foreach (var message in Messages)
+            {
+                <div Class="@GetMessageContainerClass(message)">
+                    <div Class="@GetMessageBubbleClass(message)">
+                        <!-- Message Content -->
+                        <MudText Typo="Typo.body2" Class="message-content">
+                            @message.Content
+                        </MudText>
+
+                        <!-- Message Footer (timestamp + read status) -->
+                        <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center" Class="message-footer mt-1">
+                            <MudText Typo="Typo.caption" Class="message-time">
+                                @GetMessageTime(message.CreatedAtUtc)
+                            </MudText>
+
+                            @if (IsFromCurrentUser(message))
+                            {
+                                <MudIcon Icon="@(message.IsRead ? Icons.Material.Filled.DoneAll : Icons.Material.Filled.Done)" 
+                                         Size="Size.Small"
+                                         Class="ml-1"
+                                         Style="@(message.IsRead ? "color: var(--mud-palette-primary);" : "")" />
+                            }
+                        </MudStack>
+                    </div>
+                </div>
+            }
+
+            <!-- Typing Indicator -->
+            @if (ShowTypingIndicatorFlag)
+            {
+                <div Class="message-container-received">
+                    <div Class="message-bubble received">
+                        <TypingIndicator />
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public ConversationDto Conversation { get; set; }
+
+    [Parameter]
+    public List<ChatMessageDto> Messages { get; set; } = new();
+
+    [Parameter]
+    public bool IsLoading { get; set; } = false;
+
+    [Parameter]
+    public EventCallback OnLoadMore { get; set; }
+
+    [Parameter]
+    public Guid CurrentUserId { get; set; }
+
+    public bool ShowTypingIndicatorFlag { get; set; } = false;
+
+    public void ShowTypingIndicator(string userId)
+    {
+        ShowTypingIndicatorFlag = true;
+        typingReset?.Cancel();
+        var reset = new CancellationTokenSource();
+        typingReset = reset;
+        _ = HideTypingIndicatorAsync(reset);
+    }
+
+    private CancellationTokenSource? typingReset;
+
+    private async Task HideTypingIndicatorAsync(CancellationTokenSource reset)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), reset.Token);
+            await InvokeAsync(() =>
+            {
+                if (!ReferenceEquals(typingReset, reset)) return;
+                typingReset = null;
+                ShowTypingIndicatorFlag = false;
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) when (reset.IsCancellationRequested) { }
+        finally { reset.Dispose(); }
+    }
+
+    public void Dispose() => typingReset?.Cancel();
+
+    private string GetMessageContainerClass(ChatMessageDto message)
+    {
+        return IsFromCurrentUser(message)
+            ? "message-container-sent" 
+            : "message-container-received";
+    }
+
+    private string GetMessageBubbleClass(ChatMessageDto message)
+    {
+        return IsFromCurrentUser(message) 
+            ? "message-bubble sent" 
+            : "message-bubble received";
+    }
+
+    private bool IsFromCurrentUser(ChatMessageDto message)
+    {
+        // This should check against the actual current user ID from auth
+        return message.SenderId == CurrentUserId;
+    }
+
+    private string GetMessageTime(DateTime timestamp)
+    {
+        return timestamp.ToString("HH:mm");
+    }
+}
+
+<style>
+.chat-window-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.chat-header {
+    border-bottom: 1px solid var(--mud-palette-divider);
+    flex-shrink: 0;
+}
+
+.bb-1 {
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background-color: var(--mud-palette-background);
+}
+
+.load-more-button {
+    display: flex;
+    justify-content: center;
+    padding: 12px 0;
+    margin-bottom: 8px;
+}
+
+/* Message Styling */
+.message-container-sent,
+.message-container-received {
+    display: flex;
+    margin-bottom: 8px;
+}
+
+.message-container-sent {
+    justify-content: flex-end;
+}
+
+.message-container-received {
+    justify-content: flex-start;
+}
+
+.message-bubble {
+    max-width: 60%;
+    padding: 8px 12px;
+    border-radius: 12px;
+    word-wrap: break-word;
+}
+
+.message-bubble.sent {
+    background: linear-gradient(135deg, #103D6B 0%, #1a5a99 100%);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.message-bubble.received {
+    background-color: var(--mud-palette-grey-200);
+    color: var(--mud-palette-text-primary);
+    border-bottom-left-radius: 4px;
+}
+
+.message-content {
+    line-height: 1.4;
+    margin: 0;
+}
+
+.message-footer {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.message-time {
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+/* Dark mode adjustments */
+:global(.dark .message-bubble.received) {
+    background-color: var(--mud-palette-grey-800);
+    color: var(--mud-palette-text-primary);
+}
+
+/* Responsive */
+@@media (max-width: 960px) {
+    .message-bubble {
+        max-width: 85%;
+    }
+}
+</style>

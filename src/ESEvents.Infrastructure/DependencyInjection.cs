@@ -1,5 +1,6 @@
 using ESEvents.Application.Abstractions;
 using ESEvents.Application.Chat;
+using ESEvents.Application.Companies;
 using ESEvents.Application.Departments;
 using ESEvents.Application.Events;
 using ESEvents.Application.Notifications;
@@ -9,6 +10,7 @@ using ESEvents.Infrastructure.Mail;
 using ESEvents.Infrastructure.Persistence;
 using ESEvents.Infrastructure.Persistence.Cassandra;
 using ESEvents.Infrastructure.Persistence.Chat;
+using ESEvents.Infrastructure.Persistence.Companies;
 using ESEvents.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +41,7 @@ public static class DependencyInjection
             .AddDefaultTokenProviders();
         services.AddScoped<IUserClaimsPrincipalFactory<ApplicationIdentityUser>, ApplicationUserClaimsPrincipalFactory>();
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<AppDbContext>());
+        services.AddHostedService<DatabaseMigrationService>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();
         services.AddScoped<IEventRepository, EventRepository>();
@@ -56,8 +59,9 @@ public static class DependencyInjection
         
         // Register Chat repository
         services.AddScoped<IChatRepository, ChatRepository>();
+        services.AddScoped<IChatConversationRepository, ChatConversationRepository>();
+        services.AddScoped<ICompanyRepository, CompanyRepository>();
         
         return services;
     }
 }
-

@@ -64,11 +64,15 @@
     volumes:
       - dataprotectionkeys:/var/dpkeys
     environment:
-      ConnectionStrings__Default: Host=postgresql;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Default: Host=postgresql;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Port=5432
       Email__Host: mailpit
       Email__Port: "1025"
+      Cassandra__ContactPoints__0: cassandra
+      Cassandra__Port: "9042"
     depends_on:
       postgresql:
+        condition: service_healthy
+      cassandra:
         condition: service_healthy
       mailpit:
         condition: service_started

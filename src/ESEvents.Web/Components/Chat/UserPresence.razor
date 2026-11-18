@@ -1,0 +1,20 @@
+@using ESEvents.Application.Chat
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+    <MudIcon Icon="@Icons.Material.Filled.Circle" 
+             Size="Size.Small" 
+             Color="@GetStatusColor(IsOnline)" />
+    <MudText Typo="Typo.caption" Color="@GetStatusColor(IsOnline)">
+        @(IsOnline ? "Online" : "Offline")
+    </MudText>
+</MudStack>
+
+@code {
+    [Parameter]
+    public bool IsOnline { get; set; } = false;
+
+    private Color GetStatusColor(bool isOnline)
+    {
+        return isOnline ? Color.Success : Color.Default;
+    }
+}

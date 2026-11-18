@@ -1,0 +1,736 @@
+@page "/chat"
+@attribute [Authorize]
+@using ESEvents.Application.Chat
+@using ESEvents.Application.Companies
+@using ESEvents.Application.Users
+@using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
+@implements IAsyncDisposable
+@inject ISignalRService SignalRService
+@inject IChatService ChatService
+@inject ICompanyService CompanyService
+@inject IUserService UserService
+@inject ILogger<ChatPage> Logger
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
+@inject ISnackbar Snackbar
+
+<PageTitle>Chat - ESEvents</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+        @if (availableCompanies.Count > 1)
+        {
+            <MudSelect T="Guid" Label="Company" Value="companyId" ValueChanged="ChangeCompanyAsync"
+                       Variant="Variant.Outlined" Dense="true" Style="max-width: 320px;">
+                @foreach (var company in availableCompanies)
+                {
+                    <MudSelectItem T="Guid" Value="company.Id">@company.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        else if (availableCompanies.Count == 1)
+        {
+            <MudText Typo="Typo.subtitle1">@availableCompanies[0].Name</MudText>
+        }
+
+        @if (isCreatingConversation)
+        {
+            @if (companyMembers.Count > 0)
+            {
+                <MudAutocomplete T="Guid?" Label="Start a chat with"
+                                 Value="newConversationUserId"
+                                 ValueChanged="SetNewConversationUserId"
+                                 SearchFunc="SearchCompanyMembersAsync"
+                                 ToStringFunc="GetCompanyMemberName"
+                                 Variant="Variant.Outlined" Dense="true" Clearable="true"
+                                 MinCharacters="0" Style="max-width: 320px;" />
+            }
+            else
+            {
+                <MudText Color="Color.Warning">There are no other members in this company yet.</MudText>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="!newConversationUserId.HasValue"
+                       OnClick="CreateConversationAsync">
+                Start chat
+            </MudButton>
+            <MudButton Variant="Variant.Text" OnClick="CancelNewConversation">Cancel</MudButton>
+        }
+    </MudStack>
+
+    @if (availableCompanies.Count == 0)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            @if (isAdministrator)
+            {
+                <MudText Typo="Typo.subtitle1">Create a company to set up chat</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-2">
+                    <MudTextField T="string" Label="Company name" @bind-Value="newCompanyName"
+                                  Variant="Variant.Outlined" Dense="true" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               Disabled="isCreatingCompany || string.IsNullOrWhiteSpace(newCompanyName)"
+                               OnClick="CreateCompanyAsync">
+                        Create company
+                    </MudButton>
+                </MudStack>
+            }
+            else
+            {
+                <MudText>Your account is not a member of a company yet. Ask a company administrator to add you.</MudText>
+            }
+        </MudAlert>
+    }
+    else if (isAdministrator && companyUsers.Count > 0)
+    {
+        <MudPaper Class="pa-3 mb-4" Elevation="1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudAutocomplete T="Guid?" Label="Add an active company member"
+                                 Value="memberToAddUserId"
+                                 ValueChanged="SetMemberToAddUserId"
+                                 SearchFunc="SearchCompanyUsersAsync"
+                                 ToStringFunc="GetCompanyUserName"
+                                 Variant="Variant.Outlined" Dense="true" Clearable="true"
+                                 MinCharacters="0" Style="max-width: 360px;" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           Disabled="!memberToAddUserId.HasValue || isAddingMember"
+                           OnClick="AddCompanyMemberAsync">
+                    Add member
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    <MudGrid Spacing="2" Class="chat-page">
+        <!-- Conversation List Panel -->
+        <MudItem xs="12" sm="12" md="4" Class="conversation-panel">
+            <ConversationList 
+                @ref="conversationListComponent"
+                OnSelectConversation="OnSelectConversationAsync"
+                OnNewConversation="OpenNewConversationDialogAsync"
+                IsLoading="isLoadingConversations"
+                Conversations="conversations" />
+        </MudItem>
+
+        <!-- Chat Window Panel -->
+        <MudItem xs="12" sm="12" md="8" Class="chat-window-panel">
+            @if (selectedConversation == null)
+            {
+                <MudPaper Class="d-flex align-center justify-center pa-8" Style="min-height: 500px;">
+                    <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                        <MudIcon Icon="@Icons.Material.Filled.Chat" Style="font-size: 4rem; color: var(--mud-palette-primary);" />
+                        <MudText Typo="Typo.h6" Color="Color.Default">
+                            Select a conversation to begin
+                        </MudText>
+                    </MudStack>
+                </MudPaper>
+            }
+            else
+            {
+                <ChatWindow 
+                    @ref="chatWindowComponent"
+                    Conversation="selectedConversation"
+                    Messages="messages"
+                    IsLoading="isLoadingMessages"
+                    OnLoadMore="LoadMoreMessagesAsync"
+                    CurrentUserId="currentUserId" />
+
+                <MessageInput 
+                    OnSendMessage="SendMessageAsync"
+                    OnTyping="BroadcastTypingAsync"
+                    IsConnected="isConnected"
+                    IsLoading="isSendingMessage" />
+            }
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+<!-- Connection status indicator -->
+<div class="connection-status">
+    @if (availableCompanies.Count == 0)
+    {
+        <MudChip T="string" Icon="@Icons.Material.Filled.Business"
+                 Color="Color.Warning" Size="Size.Small">
+            Company required
+        </MudChip>
+    }
+    else if (isConnected)
+    {
+        <MudChip T="string" Icon="@Icons.Material.Filled.Circle" Color="Color.Success" Size="Size.Small">
+            Connected
+        </MudChip>
+    }
+    else
+    {
+        <MudChip T="string" Icon="@Icons.Material.Filled.Circle" Color="Color.Error" Size="Size.Small">
+            Disconnected
+        </MudChip>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private ConversationList conversationListComponent;
+    private ChatWindow chatWindowComponent;
+    
+    private List<CompanyDto> availableCompanies = new();
+    private List<CompanyMemberDto> companyMembers = new();
+    private List<UserDto> companyUsers = new();
+    private List<ConversationDto> conversations = new();
+    private List<ChatMessageDto> messages = new();
+    private ConversationDto? selectedConversation;
+    private Guid? newConversationUserId;
+    private Guid? memberToAddUserId;
+    private string newCompanyName = "";
+    
+    private Guid currentUserId;
+    private Guid companyId;
+    private bool isAdministrator;
+    private bool isCreatingConversation;
+    private bool isCreatingCompany;
+    private bool isAddingMember;
+    private bool signalRHandlersRegistered;
+    
+    private bool isConnected = false;
+    private bool isLoadingConversations = false;
+    private bool isLoadingMessages = false;
+    private bool isSendingMessage = false;
+    private long? messagePageToken = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Get current user from auth state
+            var authState = await AuthenticationStateTask;
+            var user = authState.User;
+            
+            if (user?.Identity?.IsAuthenticated != true)
+            {
+                NavigationManager.NavigateTo("/ui/login", forceLoad: true);
+                return;
+            }
+
+            // Extract user ID from claims
+            var userIdClaim = user.FindFirst("sub") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim?.Value != null && Guid.TryParse(userIdClaim.Value, out var userId))
+            {
+                currentUserId = userId;
+            }
+            else
+            {
+                Logger.LogError("Could not extract user ID from claims");
+                Snackbar.Add("Authentication error. Please log in again.", Severity.Error);
+                return;
+            }
+
+            isAdministrator = user.HasClaim("system_role", "Administrator");
+            availableCompanies = (await CompanyService.GetForUserAsync(currentUserId)).ToList();
+            if (availableCompanies.Count == 0)
+            {
+                if (isAdministrator)
+                    companyUsers = (await UserService.GetAllAsync())
+                        .Where(item => item.Id != currentUserId && item.Status == ESEvents.Domain.Users.UserStatus.Active)
+                        .ToList();
+                return;
+            }
+
+            companyId = availableCompanies[0].Id;
+            companyMembers = (await ChatService.GetCompanyMembersAsync(companyId, currentUserId)).ToList();
+            if (isAdministrator)
+                companyUsers = (await UserService.GetAllAsync())
+                    .Where(item => item.Id != currentUserId && item.Status == ESEvents.Domain.Users.UserStatus.Active)
+                    .ToList();
+            
+            // Load conversations first (don't require SignalR)
+            try
+            {
+                await LoadConversationsAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Error loading conversations - chat features may be limited");
+                // Don't throw - allow user to view chat UI even if initial load fails
+            }
+            
+            // Initialize SignalR connection in background (don't block on failure)
+            await ConnectToCompanyAsync();
+            
+            Logger.LogInformation($"ChatPage initialized for user {currentUserId}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing ChatPage");
+            Snackbar.Add("Failed to initialize chat. Please refresh the page.", Severity.Error);
+        }
+    }
+
+    private async Task LoadConversationsAsync()
+    {
+        try
+        {
+            isLoadingConversations = true;
+            conversations = (await ChatService.GetConversationsAsync(companyId, currentUserId)).ToList();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading conversations");
+            Snackbar.Add("Failed to load conversations", Severity.Error);
+        }
+        finally
+        {
+            isLoadingConversations = false;
+        }
+    }
+
+    private async Task OnSelectConversationAsync(ConversationDto conversation)
+    {
+        try
+        {
+            selectedConversation = conversation;
+            messages.Clear();
+            messagePageToken = null;
+            await LoadConversationMessagesAsync();
+            
+            // Mark conversation as read
+            if (conversation.UnreadCount > 0)
+            {
+                await SignalRService.MarkAsReadAsync(companyId, conversation.OtherUserId);
+                conversation.UnreadCount = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error selecting conversation");
+            Snackbar.Add("Failed to load conversation", Severity.Error);
+        }
+    }
+
+    private async Task LoadConversationMessagesAsync()
+    {
+        try
+        {
+            isLoadingMessages = true;
+            var response = await ChatService.GetConversationAsync(
+                companyId,
+                currentUserId,
+                selectedConversation.OtherUserId,
+                pageSize: 50,
+                pageToken: messagePageToken);
+            
+            messages = response.Messages.ToList();
+            messagePageToken = response.NextPageToken;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading conversation messages");
+            Snackbar.Add("Failed to load messages", Severity.Error);
+        }
+        finally
+        {
+            isLoadingMessages = false;
+        }
+    }
+
+    private async Task LoadMoreMessagesAsync()
+    {
+        if (messagePageToken == null)
+        {
+            Snackbar.Add("No more messages to load", Severity.Info);
+            return;
+        }
+
+        try
+        {
+            isLoadingMessages = true;
+            var response = await ChatService.GetConversationAsync(
+                companyId,
+                currentUserId,
+                selectedConversation.OtherUserId,
+                pageSize: 50,
+                pageToken: messagePageToken);
+            
+            messages.AddRange(response.Messages);
+            messagePageToken = response.NextPageToken;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading more messages");
+            Snackbar.Add("Failed to load more messages", Severity.Error);
+        }
+        finally
+        {
+            isLoadingMessages = false;
+        }
+    }
+
+    private async Task SendMessageAsync(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return;
+
+        try
+        {
+            isSendingMessage = true;
+            await SignalRService.SendMessageAsync(companyId, selectedConversation.OtherUserId, content);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error sending message");
+            Snackbar.Add("Message could not be sent. Please try again.", Severity.Error);
+            throw;
+        }
+        finally
+        {
+            isSendingMessage = false;
+        }
+    }
+
+    private void HandleMessageReceived(ChatMessageDto message)
+    {
+        if (message.CompanyId != companyId)
+            return;
+
+        if (selectedConversation != null && 
+            (message.SenderId == selectedConversation.OtherUserId || 
+             message.ReceiverId == selectedConversation.OtherUserId))
+        {
+            if (messages.All(existing => existing.Id != message.Id))
+                messages.Add(message);
+        }
+
+        var conversation = conversations.FirstOrDefault(item => item.OtherUserId ==
+            (message.SenderId == currentUserId ? message.ReceiverId : message.SenderId));
+        if (conversation is null)
+        {
+            var otherUserId = message.SenderId == currentUserId ? message.ReceiverId : message.SenderId;
+            var member = companyMembers.FirstOrDefault(item => item.UserId == otherUserId);
+            if (member is not null)
+            {
+                conversation = new ConversationDto
+                {
+                    Id = message.ConversationId,
+                    CompanyId = companyId,
+                    OtherUserId = otherUserId,
+                    OtherUserName = $"{member.FirstName} {member.LastName}".Trim(),
+                    LastMessageAtUtc = message.CreatedAtUtc,
+                    LastMessageTimestamp = message.CreatedAtUtc,
+                    LastMessagePreview = message.Content
+                };
+                conversations.Insert(0, conversation);
+            }
+        }
+        if (conversation is not null)
+        {
+            conversation.LastMessagePreview = message.Content;
+            conversation.LastMessageTimestamp = message.CreatedAtUtc;
+            if (message.ReceiverId == currentUserId && selectedConversation?.OtherUserId != conversation.OtherUserId)
+                conversation.UnreadCount++;
+        }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleUserOnline(string userId)
+    {
+        var conversation = conversations.FirstOrDefault(c => c.OtherUserId.ToString() == userId);
+        if (conversation != null)
+        {
+            conversation.IsOnline = true;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void HandleUserOffline(string userId)
+    {
+        var conversation = conversations.FirstOrDefault(c => c.OtherUserId.ToString() == userId);
+        if (conversation != null)
+        {
+            conversation.IsOnline = false;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void HandleUserTyping(string userId)
+    {
+        if (chatWindowComponent != null)
+        {
+            _ = InvokeAsync(() => chatWindowComponent.ShowTypingIndicator(userId));
+        }
+    }
+
+    private void HandleMessagesRead(string readerId)
+    {
+        if (Guid.TryParse(readerId, out var userId))
+        {
+            foreach (var message in messages.Where(message =>
+                         message.SenderId == currentUserId && message.ReceiverId == userId))
+                message.IsRead = true;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task BroadcastTypingAsync() =>
+        selectedConversation is null
+            ? Task.CompletedTask
+            : SignalRService.BroadcastTypingAsync(companyId, selectedConversation.OtherUserId);
+
+    private void HandleConnectionStateChanged(bool connected)
+    {
+        isConnected = connected;
+        if (!connected)
+        {
+            Snackbar.Add("Connection lost. Reconnecting...", Severity.Warning);
+        }
+        else
+        {
+            Snackbar.Add("Reconnected", Severity.Success);
+        }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private Task OpenNewConversationDialogAsync()
+    {
+        isCreatingConversation = true;
+        return Task.CompletedTask;
+    }
+
+    private async Task CreateCompanyAsync()
+    {
+        if (!isAdministrator || string.IsNullOrWhiteSpace(newCompanyName)) return;
+
+        isCreatingCompany = true;
+        try
+        {
+            var company = await CompanyService.CreateAsync(newCompanyName, currentUserId);
+            availableCompanies.Add(company);
+            companyId = company.Id;
+            newCompanyName = "";
+            companyMembers = (await ChatService.GetCompanyMembersAsync(companyId, currentUserId)).ToList();
+            await ConnectToCompanyAsync();
+            Snackbar.Add($"Company '{company.Name}' created. Add members to start chatting.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating company for chat");
+            Snackbar.Add($"Could not create company: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isCreatingCompany = false;
+        }
+    }
+
+    private async Task AddCompanyMemberAsync()
+    {
+        if (!isAdministrator || !memberToAddUserId.HasValue) return;
+
+        isAddingMember = true;
+        try
+        {
+            var updated = await CompanyService.AddMemberAsync(companyId, memberToAddUserId.Value);
+            if (updated is null)
+            {
+                Snackbar.Add("The selected company no longer exists.", Severity.Error);
+                return;
+            }
+
+            availableCompanies[availableCompanies.FindIndex(item => item.Id == companyId)] = updated;
+            companyMembers = (await ChatService.GetCompanyMembersAsync(companyId, currentUserId)).ToList();
+            memberToAddUserId = null;
+            Snackbar.Add("Company member added. They can now start a chat.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error adding company chat member");
+            Snackbar.Add($"Could not add member: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isAddingMember = false;
+        }
+    }
+
+    private async Task ConnectToCompanyAsync()
+    {
+        SubscribeToRealtimeEvents();
+        try
+        {
+            await SignalRService.ConnectAsync(currentUserId, companyId);
+            isConnected = true;
+            var onlineUsers = await SignalRService.GetOnlineUsersAsync(companyId);
+            foreach (var conversation in conversations)
+                conversation.IsOnline = onlineUsers.Contains(conversation.OtherUserId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error connecting chat for company {CompanyId}", companyId);
+            isConnected = false;
+            await SignalRService.DisconnectAsync();
+            UnsubscribeFromRealtimeEvents();
+            Snackbar.Add("Chat is available, but its live connection could not be established.", Severity.Error);
+        }
+    }
+
+    private void SubscribeToRealtimeEvents()
+    {
+        if (signalRHandlersRegistered) return;
+        SignalRService.OnMessageReceived += HandleMessageReceived;
+        SignalRService.OnMessagesRead += HandleMessagesRead;
+        SignalRService.OnUserOnline += HandleUserOnline;
+        SignalRService.OnUserOffline += HandleUserOffline;
+        SignalRService.OnUserTyping += HandleUserTyping;
+        SignalRService.OnConnectionStateChanged += HandleConnectionStateChanged;
+        signalRHandlersRegistered = true;
+    }
+
+    private void UnsubscribeFromRealtimeEvents()
+    {
+        if (!signalRHandlersRegistered) return;
+        SignalRService.OnMessageReceived -= HandleMessageReceived;
+        SignalRService.OnMessagesRead -= HandleMessagesRead;
+        SignalRService.OnUserOnline -= HandleUserOnline;
+        SignalRService.OnUserOffline -= HandleUserOffline;
+        SignalRService.OnUserTyping -= HandleUserTyping;
+        SignalRService.OnConnectionStateChanged -= HandleConnectionStateChanged;
+        signalRHandlersRegistered = false;
+    }
+
+    private Task<IEnumerable<Guid?>> SearchCompanyMembersAsync(string value, CancellationToken cancellationToken)
+    {
+        IEnumerable<Guid?> results = companyMembers
+            .Where(member => $"{member.FirstName} {member.LastName}".Contains(value, StringComparison.OrdinalIgnoreCase))
+            .Select(member => (Guid?)member.UserId);
+        return Task.FromResult(results);
+    }
+
+    private string GetCompanyMemberName(Guid? userId)
+    {
+        var member = companyMembers.FirstOrDefault(item => item.UserId == userId);
+        return member is null ? "" : $"{member.FirstName} {member.LastName}".Trim();
+    }
+
+    private Task SetNewConversationUserId(Guid? userId)
+    {
+        newConversationUserId = userId;
+        return Task.CompletedTask;
+    }
+
+    private Task<IEnumerable<Guid?>> SearchCompanyUsersAsync(string value, CancellationToken cancellationToken)
+    {
+        var existingMemberIds = companyMembers.Select(item => item.UserId).Append(currentUserId).ToHashSet();
+        IEnumerable<Guid?> results = companyUsers
+            .Where(user => !existingMemberIds.Contains(user.Id) &&
+                           $"{user.FirstName} {user.LastName} {user.Email}"
+                               .Contains(value, StringComparison.OrdinalIgnoreCase))
+            .Select(user => (Guid?)user.Id);
+        return Task.FromResult(results);
+    }
+
+    private string GetCompanyUserName(Guid? userId)
+    {
+        var user = companyUsers.FirstOrDefault(item => item.Id == userId);
+        return user is null ? "" : $"{user.FirstName} {user.LastName} ({user.Email})";
+    }
+
+    private Task SetMemberToAddUserId(Guid? userId)
+    {
+        memberToAddUserId = userId;
+        return Task.CompletedTask;
+    }
+
+    private async Task ChangeCompanyAsync(Guid selectedCompanyId)
+    {
+        if (selectedCompanyId == companyId) return;
+        companyId = selectedCompanyId;
+        selectedConversation = null;
+        messages.Clear();
+        newConversationUserId = null;
+        companyMembers = (await ChatService.GetCompanyMembersAsync(companyId, currentUserId)).ToList();
+        await LoadConversationsAsync();
+        await ConnectToCompanyAsync();
+    }
+
+    private async Task CreateConversationAsync()
+    {
+        if (!newConversationUserId.HasValue) return;
+
+        try
+        {
+            var result = await ChatService.CreateConversationAsync(
+                companyId, currentUserId, newConversationUserId.Value);
+            var existing = conversations.FirstOrDefault(item => item.OtherUserId == result.Conversation.OtherUserId);
+            if (existing is null)
+                conversations.Insert(0, result.Conversation);
+            else
+                result = result with { Conversation = existing };
+
+            isCreatingConversation = false;
+            newConversationUserId = null;
+            await OnSelectConversationAsync(result.Conversation);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating conversation");
+            Snackbar.Add("Failed to start chat.", Severity.Error);
+        }
+    }
+
+    private void CancelNewConversation()
+    {
+        isCreatingConversation = false;
+        newConversationUserId = null;
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        try
+        {
+            UnsubscribeFromRealtimeEvents();
+            
+            await SignalRService.DisconnectAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error disposing ChatPage");
+        }
+    }
+}
+
+<style>
+.chat-page {
+    min-height: calc(100vh - 150px);
+}
+
+.conversation-panel {
+    max-height: calc(100vh - 150px);
+    overflow-y: auto;
+}
+
+.chat-window-panel {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 150px);
+}
+
+.connection-status {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+}
+
+@@media (max-width: 960px) {
+    .conversation-panel {
+        max-height: auto;
+    }
+    
+    .chat-window-panel {
+        max-height: auto;
+    }
+}
+</style>

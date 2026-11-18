@@ -22,6 +22,102 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("ESEvents.Domain.Chat.Conversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsArchivedByUser1")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsArchivedByUser2")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("LastMessageTimestamp")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("UnreadCountUser1")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UnreadCountUser2")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId1")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId2")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "UserId1");
+
+                    b.HasIndex("CompanyId", "UserId2");
+
+                    b.HasIndex("CompanyId", "UserId1", "UserId2")
+                        .IsUnique();
+
+                    b.ToTable("chat_conversations", (string)null);
+                });
+
+            modelBuilder.Entity("ESEvents.Domain.Companies.Company", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("companies", (string)null);
+                });
+
+            modelBuilder.Entity("ESEvents.Domain.Companies.CompanyMember", b =>
+                {
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AddedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("CompanyId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("company_members", (string)null);
+                });
+
             modelBuilder.Entity("ESEvents.Domain.Departments.Department", b =>
                 {
                     b.Property<Guid>("Id")
@@ -419,6 +515,30 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("ESEvents.Domain.Chat.Conversation", b =>
+                {
+                    b.HasOne("ESEvents.Domain.Companies.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ESEvents.Domain.Companies.CompanyMember", b =>
+                {
+                    b.HasOne("ESEvents.Domain.Companies.Company", null)
+                        .WithMany("Members")
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ESEvents.Infrastructure.Identity.ApplicationIdentityUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ESEvents.Domain.Departments.DepartmentMember", b =>
                 {
                     b.HasOne("ESEvents.Domain.Departments.Department", null)
@@ -506,6 +626,11 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("ESEvents.Domain.Companies.Company", b =>
+                {
+                    b.Navigation("Members");
                 });
 
             modelBuilder.Entity("ESEvents.Domain.Departments.Department", b =>

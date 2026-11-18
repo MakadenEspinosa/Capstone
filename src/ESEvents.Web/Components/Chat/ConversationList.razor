@@ -1,0 +1,205 @@
+@using ESEvents.Application.Chat
+
+<MudPaper Class="conversation-list-container" Elevation="0">
+    <!-- Header -->
+    <MudStack Class="pa-4 bb-1" Spacing="2">
+        <MudStack Row="true" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.h6" Class="font-weight-bold">
+                <MudIcon Icon="@Icons.Material.Filled.Chat" Class="mr-2" />
+                Conversations
+            </MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Add" 
+                          Size="Size.Small" 
+                          Color="Color.Primary"
+                          OnClick="OnNewConversationAsync"
+                          Title="Start a new conversation" />
+        </MudStack>
+        <MudTextField 
+            @bind-Value="searchQuery"
+            Placeholder="Search conversations..."
+            Variant="Variant.Outlined"
+            Size="Size.Small"
+            Clearable="true"
+            StartAdornment="@Icons.Material.Filled.Search" />
+    </MudStack>
+
+    @if (IsLoading)
+    {
+        <MudStack AlignItems="AlignItems.Center" Class="pa-4" Spacing="2">
+            <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+            <MudText Typo="Typo.caption">Loading conversations...</MudText>
+        </MudStack>
+    }
+    else if (!FilteredConversations.Any())
+    {
+        <MudStack AlignItems="AlignItems.Center" Class="pa-4" Spacing="2">
+            <MudIcon Icon="@Icons.Material.Filled.ChatBubbleOutline" Style="font-size: 2rem; opacity: 0.5;" />
+            <MudText Typo="Typo.caption" Color="Color.Default">
+                @(string.IsNullOrEmpty(searchQuery) ? "No conversations yet" : "No matches found")
+            </MudText>
+        </MudStack>
+    }
+    else
+    {
+        <MudList T="ConversationDto" Clickable="true" Class="pa-0">
+            @foreach (var conversation in FilteredConversations)
+            {
+                <MudListItem T="ConversationDto" @key="conversation.OtherUserId" 
+                             OnClick="() => OnSelectConversation.InvokeAsync(conversation)"
+                             Class="@GetConversationItemClass(conversation)"
+                             Style="cursor: pointer;">
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="w-100">
+                        <!-- Avatar -->
+                        <MudAvatar Size="Size.Medium" Color="Color.Primary" Class="font-weight-bold">
+                            @(conversation.OtherUserName.FirstOrDefault())
+                        </MudAvatar>
+
+                        <!-- Conversation Info -->
+                        <MudStack Spacing="0" Style="flex: 1; min-width: 0;">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                <MudText Typo="Typo.subtitle2" Class="font-weight-bold">
+                                    @conversation.OtherUserName
+                                </MudText>
+                                @if (conversation.IsOnline)
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.Circle" 
+                                             Color="Color.Success" 
+                                             Size="Size.Small" 
+                                             Style="height: 20px;">
+                                        Online
+                                    </MudChip>
+                                }
+                            </MudStack>
+
+                            <MudText Typo="Typo.caption" 
+                                     Class="text-truncate" 
+                                     Color="@(conversation.UnreadCount > 0 ? Color.Inherit : Color.Default)">
+                                @conversation.LastMessagePreview
+                            </MudText>
+
+                            <MudText Typo="Typo.caption" Color="Color.Default">
+                                @GetRelativeTime(conversation.LastMessageTimestamp)
+                            </MudText>
+                        </MudStack>
+
+                        <!-- Unread Badge -->
+                        @if (conversation.UnreadCount > 0)
+                        {
+                            <MudBadge Content="@conversation.UnreadCount" 
+                                      Color="Color.Error" 
+                                      Overlap="true"
+                                      BadgeClass="badge-pulse">
+                                <MudChip T="string" Color="Color.Secondary" Icon="@Icons.Material.Filled.Circle" />
+                            </MudBadge>
+                        }
+                    </MudStack>
+                </MudListItem>
+                <MudDivider />
+            }
+        </MudList>
+    }
+</MudPaper>
+
+@code {
+    [Parameter]
+    public List<ConversationDto> Conversations { get; set; } = new();
+
+    [Parameter]
+    public bool IsLoading { get; set; } = false;
+
+    [Parameter]
+    public EventCallback<ConversationDto> OnSelectConversation { get; set; }
+
+    [Parameter]
+    public EventCallback OnNewConversation { get; set; }
+
+    private string searchQuery = "";
+
+    private List<ConversationDto> FilteredConversations
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(searchQuery))
+                return Conversations.OrderByDescending(c => c.LastMessageTimestamp).ToList();
+
+            var query = searchQuery.ToLower();
+            return Conversations
+                .Where(c => c.OtherUserName.ToLower().Contains(query) ||
+                           c.LastMessagePreview.ToLower().Contains(query))
+                .OrderByDescending(c => c.LastMessageTimestamp)
+                .ToList();
+        }
+    }
+
+    private string GetConversationItemClass(ConversationDto conversation)
+    {
+        return $"conversation-item {(conversation.UnreadCount > 0 ? "unread" : "")}";
+    }
+
+    private string GetRelativeTime(DateTime timestamp)
+    {
+        var now = DateTime.UtcNow;
+        var diff = now - timestamp;
+
+        return diff.TotalSeconds < 60 ? "Just now" :
+               diff.TotalMinutes < 60 ? $"{(int)diff.TotalMinutes}m ago" :
+               diff.TotalHours < 24 ? $"{(int)diff.TotalHours}h ago" :
+               diff.TotalDays < 7 ? $"{(int)diff.TotalDays}d ago" :
+               timestamp.ToString("MMM d");
+    }
+
+    private async Task OnNewConversationAsync()
+    {
+        await OnNewConversation.InvokeAsync();
+    }
+}
+
+<style>
+.conversation-list-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--mud-palette-divider);
+}
+
+.bb-1 {
+    border-bottom: 1px solid var(--mud-palette-divider);
+}
+
+.conversation-item {
+    padding: 12px 16px !important;
+    transition: background-color 0.2s ease;
+}
+
+.conversation-item:hover {
+    background-color: var(--mud-palette-action-hover);
+}
+
+.conversation-item.unread {
+    background-color: rgba(252, 206, 6, 0.1);
+    font-weight: 500;
+}
+
+.badge-pulse {
+    animation: pulse 2s infinite;
+}
+
+@@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.text-truncate {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.w-100 {
+    width: 100%;
+}
+</style>

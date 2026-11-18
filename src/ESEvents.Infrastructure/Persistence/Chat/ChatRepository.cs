@@ -3,110 +3,50 @@ using ESEvents.Application.Chat;
 using ESEvents.Domain.Chat;
 using ESEvents.Infrastructure.Persistence.Cassandra;
 using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace ESEvents.Infrastructure.Persistence.Chat;
 
-/// <summary>
-/// Cassandra implementation of chat repository.
-/// Manages persistence of chat messages across three denormalized tables.
-/// </summary>
-public class ChatRepository : IChatRepository
+public sealed class ChatRepository(
+    CassandraSessionFactory sessionFactory,
+    ILogger<ChatRepository> logger) : IChatRepository
 {
-    private readonly CassandraSessionFactory _sessionFactory;
-    private readonly ILogger<ChatRepository> _logger;
-    private const string Keyspace = "chat_logs";
+    private const int MessageTtlSeconds = 2_592_000;
 
-    public ChatRepository(CassandraSessionFactory sessionFactory, ILogger<ChatRepository> logger)
-    {
-        _sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
-    /// <inheritdoc />
     public async Task SaveMessageAsync(ChatMessage message, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var session = await _sessionFactory.GetSessionAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        var session = await sessionFactory.GetSessionAsync();
+        var (user1, user2) = Normalize(message.SenderId, message.ReceiverId);
+        var batch = new BatchStatement();
+        batch.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        var createdAt = message.CreatedAtUtc;
 
-            // Prepare the batch insert to write to all 3 tables atomically
-            var batch = new BatchStatement();
-            batch.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        batch.Add(new SimpleStatement(
+            $@"INSERT INTO chat_logs.messages_by_conversation
+                (company_id, user_id_1, user_id_2, message_timestamp, message_id, sender_id,
+                 receiver_id, content, created_at, is_read, is_deleted)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, false, false) USING TTL {MessageTtlSeconds}",
+            message.CompanyId, user1, user2, message.MessageTimestamp, message.Id,
+            message.SenderId, message.ReceiverId, message.Content, createdAt));
 
-            // Normalize participant order
-            var (user1, user2) = message.SenderId < message.ReceiverId
-                ? (message.SenderId, message.ReceiverId)
-                : (message.ReceiverId, message.SenderId);
+        batch.Add(new SimpleStatement(
+            $@"INSERT INTO chat_logs.messages_by_sender
+                (company_id, sender_id, message_timestamp, message_id, receiver_id, content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?) USING TTL {MessageTtlSeconds}",
+            message.CompanyId, message.SenderId, message.MessageTimestamp, message.Id,
+            message.ReceiverId, message.Content, createdAt));
 
-            // 1. Insert into messages_by_conversation (primary table)
-            var conversationInsert = new SimpleStatement(
-                @"INSERT INTO chat_logs.messages_by_conversation 
-                  (company_id, user_id_1, user_id_2, message_timestamp, message_id, sender_id, content, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                  USING TTL 2592000"); // 30 days
+        batch.Add(new SimpleStatement(
+            $@"INSERT INTO chat_logs.unread_messages
+                (company_id, receiver_id, sender_id, message_timestamp, message_id, content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?) USING TTL {MessageTtlSeconds}",
+            message.CompanyId, message.ReceiverId, message.SenderId, message.MessageTimestamp,
+            message.Id, message.Content, createdAt));
 
-            batch.Add(conversationInsert.Bind(
-                message.CompanyId,
-                user1,
-                user2,
-                message.MessageTimestamp,
-                message.Id,
-                message.SenderId,
-                message.Content,
-                DateTimeOffset.UtcNow.DateTime));
-
-            // 2. Insert into messages_by_sender (index table)
-            var senderInsert = new SimpleStatement(
-                @"INSERT INTO chat_logs.messages_by_sender
-                  (company_id, sender_id, message_timestamp, message_id, receiver_id, content, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)
-                  USING TTL 2592000");
-
-            batch.Add(senderInsert.Bind(
-                message.CompanyId,
-                message.SenderId,
-                message.MessageTimestamp,
-                message.Id,
-                message.ReceiverId,
-                message.Content,
-                DateTimeOffset.UtcNow.DateTime));
-
-            // 3. Insert into unread_messages (index table for notifications)
-            var unreadInsert = new SimpleStatement(
-                @"INSERT INTO chat_logs.unread_messages
-                  (company_id, receiver_id, sender_id, message_timestamp, message_id, content, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)
-                  USING TTL 2592000");
-
-            batch.Add(unreadInsert.Bind(
-                message.CompanyId,
-                message.ReceiverId,
-                message.SenderId,
-                message.MessageTimestamp,
-                message.Id,
-                message.Content,
-                DateTimeOffset.UtcNow.DateTime));
-
-            // Execute batch atomically
-            await session.ExecuteAsync(batch);
-
-            _logger.LogInformation(
-                "Message saved: MessageId={MessageId}, From={SenderId}, To={ReceiverId}",
-                message.Id, message.SenderId, message.ReceiverId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error saving message to Cassandra");
-            throw;
-        }
+        await session.ExecuteAsync(batch);
+        logger.LogInformation("Saved chat message {MessageId} in company {CompanyId}", message.Id, message.CompanyId);
     }
 
-    /// <inheritdoc />
     public async Task<IList<ChatMessage>> GetConversationAsync(
         Guid companyId,
         Guid userId1,
@@ -115,128 +55,79 @@ public class ChatRepository : IChatRepository
         long? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var session = await _sessionFactory.GetSessionAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        var session = await sessionFactory.GetSessionAsync();
+        var (user1, user2) = Normalize(userId1, userId2);
+        var query = @"SELECT * FROM chat_logs.messages_by_conversation
+                      WHERE company_id = ? AND user_id_1 = ? AND user_id_2 = ?";
+        if (pageToken.HasValue) query += " AND message_timestamp < ?";
+        query += " LIMIT ?";
 
-            // Query messages_by_conversation
-            var query = @"SELECT * FROM chat_logs.messages_by_conversation
-                        WHERE company_id = ? AND user_id_1 = ? AND user_id_2 = ?
-                        ORDER BY message_timestamp DESC";
-
-            if (pageToken.HasValue)
-            {
-                query += " AND message_timestamp < ?";
-            }
-
-            query += $" LIMIT {pageSize}";
-
-            var statement = new SimpleStatement(query);
-            
-            if (pageToken.HasValue)
-            {
-                statement = statement.Bind(companyId, userId1, userId2, pageToken.Value);
-            }
-            else
-            {
-                statement = statement.Bind(companyId, userId1, userId2);
-            }
-
-            statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
-            statement.SetPageSize(pageSize);
-
-            var result = await session.ExecuteAsync(statement);
-
-            var messages = result.Select(row => MapRowToMessage(row)).ToList();
-
-            _logger.LogInformation(
-                "Retrieved conversation: Company={CompanyId}, User1={UserId1}, User2={UserId2}, Count={Count}",
-                companyId, userId1, userId2, messages.Count);
-
-            return messages;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving conversation from Cassandra");
-            throw;
-        }
+        var statement = pageToken.HasValue
+            ? new SimpleStatement(query, companyId, user1, user2, pageToken.Value, pageSize)
+            : new SimpleStatement(query, companyId, user1, user2, pageSize);
+        statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        var result = await session.ExecuteAsync(statement);
+        return result.Select(MapConversationMessage).ToList();
     }
 
-    /// <inheritdoc />
     public async Task<int> GetUnreadCountAsync(
         Guid companyId,
         Guid receiverId,
         Guid? senderId = null,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var session = await _sessionFactory.GetSessionAsync();
-
-            string query;
-            SimpleStatement statement;
-
-            if (senderId.HasValue)
-            {
-                // Count unread from specific sender
-                query = @"SELECT COUNT(*) as count FROM chat_logs.unread_messages
-                         WHERE company_id = ? AND receiver_id = ? AND sender_id = ?";
-                statement = new SimpleStatement(query).Bind(companyId, receiverId, senderId.Value);
-            }
-            else
-            {
-                // Count total unread (all senders)
-                query = @"SELECT COUNT(*) as count FROM chat_logs.unread_messages
-                         WHERE company_id = ? AND receiver_id = ?";
-                statement = new SimpleStatement(query).Bind(companyId, receiverId);
-            }
-
-            statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
-
-            var result = await session.ExecuteAsync(statement);
-            var row = result.FirstOrDefault();
-
-            return row != null ? row.GetValue<long>("count").GetHashCode() : 0;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting unread count from Cassandra");
-            throw;
-        }
+        var unread = await GetUnreadRowsAsync(companyId, receiverId, cancellationToken);
+        return unread.Count(row => !senderId.HasValue || row.GetValue<Guid>("sender_id") == senderId.Value);
     }
 
-    /// <inheritdoc />
     public async Task MarkAsReadAsync(
         Guid companyId,
         Guid receiverId,
         Guid senderId,
         CancellationToken cancellationToken = default)
     {
-        try
+        cancellationToken.ThrowIfCancellationRequested();
+        var session = await sessionFactory.GetSessionAsync();
+        var unread = await GetUnreadRowsAsync(companyId, receiverId, cancellationToken);
+        var matching = unread.Where(row => row.GetValue<Guid>("sender_id") == senderId).ToArray();
+        if (matching.Length == 0) return;
+
+        var (user1, user2) = Normalize(receiverId, senderId);
+        var readAt = DateTime.UtcNow;
+        var batch = new BatchStatement();
+        batch.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        var pendingStatements = 0;
+        foreach (var row in matching)
         {
-            var session = await _sessionFactory.GetSessionAsync();
+            var timestamp = row.GetValue<long>("message_timestamp");
+            var messageId = row.GetValue<Guid>("message_id");
 
-            // Delete all unread entries for this sender-receiver pair
-            var query = @"DELETE FROM chat_logs.unread_messages
-                        WHERE company_id = ? AND receiver_id = ? AND sender_id = ?";
+            batch.Add(new SimpleStatement(
+                @"DELETE FROM chat_logs.unread_messages
+                  WHERE company_id = ? AND receiver_id = ? AND message_timestamp = ?
+                    AND sender_id = ? AND message_id = ?",
+                companyId, receiverId, timestamp, senderId, messageId));
+            pendingStatements++;
+            batch.Add(new SimpleStatement(
+                @"UPDATE chat_logs.messages_by_conversation SET is_read = true, read_at_utc = ?
+                  WHERE company_id = ? AND user_id_1 = ? AND user_id_2 = ?
+                    AND message_timestamp = ? AND message_id = ?",
+                readAt, companyId, user1, user2, timestamp, messageId));
+            pendingStatements++;
 
-            var statement = new SimpleStatement(query).Bind(companyId, receiverId, senderId);
-            statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
-
-            await session.ExecuteAsync(statement);
-
-            _logger.LogInformation(
-                "Marked as read: Company={CompanyId}, Receiver={ReceiverId}, Sender={SenderId}",
-                companyId, receiverId, senderId);
+            if (pendingStatements >= 100)
+            {
+                await session.ExecuteAsync(batch);
+                batch = new BatchStatement();
+                batch.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+                pendingStatements = 0;
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error marking messages as read");
-            throw;
-        }
+
+        if (pendingStatements > 0) await session.ExecuteAsync(batch);
     }
 
-    /// <inheritdoc />
     public async Task<IList<ChatMessage>> GetSentMessagesAsync(
         Guid companyId,
         Guid senderId,
@@ -244,48 +135,20 @@ public class ChatRepository : IChatRepository
         long? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var session = await _sessionFactory.GetSessionAsync();
-
-            var query = @"SELECT * FROM chat_logs.messages_by_sender
-                        WHERE company_id = ? AND sender_id = ?
-                        ORDER BY message_timestamp DESC";
-
-            if (pageToken.HasValue)
-            {
-                query += " AND message_timestamp < ?";
-            }
-
-            query += $" LIMIT {pageSize}";
-
-            var statement = new SimpleStatement(query);
-
-            if (pageToken.HasValue)
-            {
-                statement = statement.Bind(companyId, senderId, pageToken.Value);
-            }
-            else
-            {
-                statement = statement.Bind(companyId, senderId);
-            }
-
-            statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
-            statement.SetPageSize(pageSize);
-
-            var result = await session.ExecuteAsync(statement);
-            var messages = result.Select(row => MapSenderRowToMessage(row)).ToList();
-
-            return messages;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving sent messages from Cassandra");
-            throw;
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var session = await sessionFactory.GetSessionAsync();
+        var query = @"SELECT * FROM chat_logs.messages_by_sender
+                      WHERE company_id = ? AND sender_id = ?";
+        if (pageToken.HasValue) query += " AND message_timestamp < ?";
+        query += " LIMIT ?";
+        var statement = pageToken.HasValue
+            ? new SimpleStatement(query, companyId, senderId, pageToken.Value, pageSize)
+            : new SimpleStatement(query, companyId, senderId, pageSize);
+        statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        var result = await session.ExecuteAsync(statement);
+        return result.Select(MapSenderMessage).ToList();
     }
 
-    /// <inheritdoc />
     public async Task DeleteMessageAsync(
         Guid companyId,
         Guid messageId,
@@ -294,32 +157,18 @@ public class ChatRepository : IChatRepository
         long messageTimestamp,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var session = await _sessionFactory.GetSessionAsync();
-
-            // Soft delete: delete from conversation table
-            var query = @"DELETE FROM chat_logs.messages_by_conversation
-                        WHERE company_id = ? AND user_id_1 = ? AND user_id_2 = ? 
-                        AND message_timestamp = ? AND message_id = ?";
-
-            var statement = new SimpleStatement(query).Bind(companyId, userId1, userId2, messageTimestamp, messageId);
-            statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
-
-            await session.ExecuteAsync(statement);
-
-            _logger.LogInformation(
-                "Message deleted: MessageId={MessageId}, Company={CompanyId}",
-                messageId, companyId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting message from Cassandra");
-            throw;
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var session = await sessionFactory.GetSessionAsync();
+        var (first, second) = Normalize(userId1, userId2);
+        var statement = new SimpleStatement(
+            @"UPDATE chat_logs.messages_by_conversation SET is_deleted = true
+              WHERE company_id = ? AND user_id_1 = ? AND user_id_2 = ?
+                AND message_timestamp = ? AND message_id = ?",
+            companyId, first, second, messageTimestamp, messageId);
+        statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        await session.ExecuteAsync(statement);
     }
 
-    /// <inheritdoc />
     public async Task<IList<ChatMessage>> GetUnreadMessagesAsync(
         Guid companyId,
         Guid receiverId,
@@ -327,126 +176,77 @@ public class ChatRepository : IChatRepository
         long? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var session = await _sessionFactory.GetSessionAsync();
-
-            var query = @"SELECT * FROM chat_logs.unread_messages
-                        WHERE company_id = ? AND receiver_id = ?
-                        ORDER BY message_timestamp DESC";
-
-            if (pageToken.HasValue)
-            {
-                query += " AND message_timestamp < ?";
-            }
-
-            query += $" LIMIT {pageSize}";
-
-            var statement = new SimpleStatement(query);
-
-            if (pageToken.HasValue)
-            {
-                statement = statement.Bind(companyId, receiverId, pageToken.Value);
-            }
-            else
-            {
-                statement = statement.Bind(companyId, receiverId);
-            }
-
-            statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
-            statement.SetPageSize(pageSize);
-
-            var result = await session.ExecuteAsync(statement);
-            var messages = result.Select(row => MapUnreadRowToMessage(row)).ToList();
-
-            return messages;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving unread messages from Cassandra");
-            throw;
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var session = await sessionFactory.GetSessionAsync();
+        var query = @"SELECT * FROM chat_logs.unread_messages
+                      WHERE company_id = ? AND receiver_id = ?";
+        if (pageToken.HasValue) query += " AND message_timestamp < ?";
+        query += " LIMIT ?";
+        var statement = pageToken.HasValue
+            ? new SimpleStatement(query, companyId, receiverId, pageToken.Value, pageSize)
+            : new SimpleStatement(query, companyId, receiverId, pageSize);
+        statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        var result = await session.ExecuteAsync(statement);
+        return result.Select(MapUnreadMessage).ToList();
     }
 
-    /// <inheritdoc />
     public async Task<Dictionary<Guid, int>> GetUnreadBySenderAsync(
-        Guid companyId,
-        Guid receiverId,
-        CancellationToken cancellationToken = default)
+        Guid companyId, Guid receiverId, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var session = await _sessionFactory.GetSessionAsync();
-
-            var query = @"SELECT sender_id, COUNT(*) as count FROM chat_logs.unread_messages
-                        WHERE company_id = ? AND receiver_id = ?
-                        GROUP BY sender_id";
-
-            var statement = new SimpleStatement(query).Bind(companyId, receiverId);
-            statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
-
-            var result = await session.ExecuteAsync(statement);
-
-            var unreadBySender = new Dictionary<Guid, int>();
-            foreach (var row in result)
-            {
-                var senderId = row.GetValue<Guid>("sender_id");
-                var count = (int)row.GetValue<long>("count");
-                unreadBySender[senderId] = count;
-            }
-
-            return unreadBySender;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving unread messages by sender from Cassandra");
-            throw;
-        }
+        var rows = await GetUnreadRowsAsync(companyId, receiverId, cancellationToken);
+        return rows.GroupBy(row => row.GetValue<Guid>("sender_id"))
+            .ToDictionary(group => group.Key, group => group.Count());
     }
 
-    private static ChatMessage MapRowToMessage(Row row)
+    private async Task<IReadOnlyList<Row>> GetUnreadRowsAsync(
+        Guid companyId, Guid receiverId, CancellationToken cancellationToken)
     {
-        return ChatMessage.CreateFromDatabase(
-            row.GetValue<Guid>("message_id"),
-            row.GetValue<Guid>("company_id"),
-            row.GetValue<Guid>("sender_id"),
-            row.GetValue<Guid?>("receiver_id") ?? Guid.Empty,
-            row.GetValue<string>("content") ?? string.Empty,
-            row.GetValue<long>("message_timestamp"),
-            false,
-            null,
-            false,
-            DateTime.UtcNow);
+        cancellationToken.ThrowIfCancellationRequested();
+        var session = await sessionFactory.GetSessionAsync();
+        var statement = new SimpleStatement(
+            @"SELECT sender_id, message_timestamp, message_id FROM chat_logs.unread_messages
+              WHERE company_id = ? AND receiver_id = ?",
+            companyId, receiverId);
+        statement.SetConsistencyLevel(ConsistencyLevel.LocalQuorum);
+        return (await session.ExecuteAsync(statement)).ToArray();
     }
 
-    private static ChatMessage MapSenderRowToMessage(Row row)
-    {
-        return ChatMessage.CreateFromDatabase(
-            row.GetValue<Guid>("message_id"),
-            row.GetValue<Guid>("company_id"),
-            row.GetValue<Guid>("sender_id"),
-            row.GetValue<Guid?>("receiver_id") ?? Guid.Empty,
-            row.GetValue<string>("content") ?? string.Empty,
-            row.GetValue<long>("message_timestamp"),
-            false,
-            null,
-            false,
-            DateTime.UtcNow);
-    }
+    private static ChatMessage MapConversationMessage(Row row) => ChatMessage.CreateFromDatabase(
+        row.GetValue<Guid>("message_id"),
+        row.GetValue<Guid>("company_id"),
+        row.GetValue<Guid>("sender_id"),
+        row.GetValue<Guid>("receiver_id"),
+        row.GetValue<string>("content") ?? string.Empty,
+        row.GetValue<long>("message_timestamp"),
+        row.GetValue<bool?>("is_read") ?? false,
+        row.GetValue<DateTime?>("read_at_utc"),
+        row.GetValue<bool?>("is_deleted") ?? false,
+        row.GetValue<DateTime>("created_at"));
 
-    private static ChatMessage MapUnreadRowToMessage(Row row)
-    {
-        return ChatMessage.CreateFromDatabase(
-            row.GetValue<Guid>("message_id"),
-            row.GetValue<Guid>("company_id"),
-            row.GetValue<Guid>("sender_id"),
-            row.GetValue<Guid?>("receiver_id") ?? Guid.Empty,
-            row.GetValue<string>("content") ?? string.Empty,
-            row.GetValue<long>("message_timestamp"),
-            false,
-            null,
-            false,
-            DateTime.UtcNow);
-    }
+    private static ChatMessage MapSenderMessage(Row row) => ChatMessage.CreateFromDatabase(
+        row.GetValue<Guid>("message_id"),
+        row.GetValue<Guid>("company_id"),
+        row.GetValue<Guid>("sender_id"),
+        row.GetValue<Guid>("receiver_id"),
+        row.GetValue<string>("content") ?? string.Empty,
+        row.GetValue<long>("message_timestamp"),
+        false,
+        null,
+        false,
+        row.GetValue<DateTime>("created_at"));
+
+    private static ChatMessage MapUnreadMessage(Row row) => ChatMessage.CreateFromDatabase(
+        row.GetValue<Guid>("message_id"),
+        row.GetValue<Guid>("company_id"),
+        row.GetValue<Guid>("sender_id"),
+        row.GetValue<Guid>("receiver_id"),
+        row.GetValue<string>("content") ?? string.Empty,
+        row.GetValue<long>("message_timestamp"),
+        false,
+        null,
+        false,
+        row.GetValue<DateTime>("created_at"));
+
+    private static (Guid User1, Guid User2) Normalize(Guid userId1, Guid userId2) =>
+        userId1 < userId2 ? (userId1, userId2) : (userId2, userId1);
 }
-

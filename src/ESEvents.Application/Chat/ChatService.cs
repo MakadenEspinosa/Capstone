@@ -1,30 +1,34 @@
-using ESEvents.Application.Abstractions;
+using ESEvents.Application.Companies;
 using ESEvents.Domain.Chat;
 using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace ESEvents.Application.Chat;
 
-/// <summary>
-/// Application service implementing chat business logic.
-/// Coordinates between domain, repository, and notification systems.
-/// </summary>
-public class ChatService : IChatService
+public sealed class ChatService(
+    IChatRepository messages,
+    IChatConversationRepository conversations,
+    ICompanyService companies,
+    IChatNotifier notifier,
+    ILogger<ChatService> logger) : IChatService
 {
-    private readonly IChatRepository _repository;
-    private readonly ILogger<ChatService> _logger;
-
-    public ChatService(IChatRepository repository, ILogger<ChatService> logger)
+    public async Task<CreateConversationResponse> CreateConversationAsync(
+        Guid companyId, Guid userId, Guid otherUserId, CancellationToken cancellationToken = default)
     {
-        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        await EnsureParticipantsAsync(companyId, userId, otherUserId, cancellationToken);
+        var (user1, user2) = Normalize(userId, otherUserId);
+        var existing = await conversations.GetAsync(companyId, user1, user2, cancellationToken);
+        var conversation = existing ??
+            await conversations.GetOrCreateAsync(companyId, user1, user2, cancellationToken);
+        conversation.Unarchive(userId);
+        await conversations.SaveChangesAsync(cancellationToken);
+        var dto = await ToConversationDtoAsync(conversation, userId, cancellationToken);
+        return new CreateConversationResponse(dto, existing is null);
     }
 
-    /// <inheritdoc />
+    public Task<IReadOnlyList<CompanyMemberDto>> GetCompanyMembersAsync(
+        Guid companyId, Guid userId, CancellationToken cancellationToken = default) =>
+        companies.GetMembersAsync(companyId, userId, cancellationToken);
+
     public async Task<ChatMessageDto> SendMessageAsync(
         Guid companyId,
         Guid senderId,
@@ -32,46 +36,48 @@ public class ChatService : IChatService
         string content,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
-            "Send message: Company={CompanyId}, From={SenderId}, To={ReceiverId}, Length={ContentLength}",
-            companyId, senderId, receiverId, content?.Length ?? 0);
+        await EnsureParticipantsAsync(companyId, senderId, receiverId, cancellationToken);
+        var (user1, user2) = Normalize(senderId, receiverId);
+        var conversation = await conversations.GetOrCreateAsync(companyId, user1, user2, cancellationToken);
 
-        try
-        {
-            // Create domain entity (validates input)
-            var message = ChatMessage.Create(companyId, senderId, receiverId, content ?? string.Empty);
+        var message = ChatMessage.Create(companyId, senderId, receiverId, content);
+        await messages.SaveMessageAsync(message, cancellationToken);
 
-            // Persist to repository (writes to all 3 Cassandra tables)
-            await _repository.SaveMessageAsync(message, cancellationToken);
+        conversation.Unarchive(senderId);
+        conversation.Unarchive(receiverId);
+        conversation.AddMessage(message.MessageTimestamp, senderId);
+        await conversations.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("Message sent successfully: {MessageId}", message.Id);
+        var dto = ToMessageDto(message, conversation.Id);
+        var unreadCount = await messages.GetUnreadCountAsync(companyId, receiverId, senderId, cancellationToken);
+        await notifier.MessageSentAsync(dto, unreadCount, cancellationToken);
 
-            // Return DTO
-            return new ChatMessageDto
-            {
-                Id = message.Id,
-                SenderId = message.SenderId,
-                ReceiverId = message.ReceiverId,
-                Content = message.Content,
-                CreatedAtUtc = message.CreatedAtUtc,
-                IsRead = message.IsRead,
-                ReadAtUtc = message.ReadAtUtc,
-                IsDeleted = message.IsDeleted
-            };
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Message validation failed");
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending message");
-            throw;
-        }
+        logger.LogInformation(
+            "Chat message {MessageId} persisted for company {CompanyId}",
+            message.Id, companyId);
+        return dto;
     }
 
-    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConversationDto>> GetConversationsAsync(
+        Guid companyId,
+        Guid userId,
+        bool includeArchived = false,
+        int pageSize = 20,
+        int pageNumber = 1,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureMemberAsync(companyId, userId, cancellationToken);
+        ValidatePage(pageSize, pageNumber);
+
+        var items = await conversations.GetForUserAsync(
+            companyId, userId, includeArchived, pageSize, pageNumber, cancellationToken);
+        var result = new List<ConversationDto>(items.Count);
+        foreach (var item in items)
+            result.Add(await ToConversationDtoAsync(item, userId, cancellationToken));
+
+        return result;
+    }
+
     public async Task<GetConversationResponse> GetConversationAsync(
         Guid companyId,
         Guid userId,
@@ -80,126 +86,66 @@ public class ChatService : IChatService
         long? pageToken = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
-            "Get conversation: Company={CompanyId}, User={UserId}, Other={OtherUserId}, PageSize={PageSize}",
-            companyId, userId, otherUserId, pageSize);
+        await EnsureParticipantsAsync(companyId, userId, otherUserId, cancellationToken);
+        if (pageSize is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(pageSize), "Page size must be between 1 and 100.");
 
-        // Normalize user order (same as domain)
-        var (user1, user2) = userId < otherUserId
-            ? (userId, otherUserId)
-            : (otherUserId, userId);
+        var (user1, user2) = Normalize(userId, otherUserId);
+        var conversation = await conversations.GetAsync(companyId, user1, user2, cancellationToken)
+            ?? throw new KeyNotFoundException("Conversation was not found.");
 
-        // Fetch messages from repository
-        var messages = await _repository.GetConversationAsync(
+        var found = await messages.GetConversationAsync(
             companyId, user1, user2, pageSize + 1, pageToken, cancellationToken);
-
-        // Determine if there are more pages (we fetched pageSize + 1)
-        var hasNextPage = messages.Count > pageSize;
-        if (hasNextPage)
-            messages = messages.Take(pageSize).ToList();
-
-        // Get next page token (timestamp of last message if more pages)
-        long? nextPageToken = hasNextPage && messages.Count > 0
-            ? messages.Last().MessageTimestamp
-            : null;
-
-        var dtos = messages.Select(m => new ChatMessageDto
-        {
-            Id = m.Id,
-            SenderId = m.SenderId,
-            ReceiverId = m.ReceiverId,
-            Content = m.Content,
-            CreatedAtUtc = m.CreatedAtUtc,
-            IsRead = m.IsRead,
-            ReadAtUtc = m.ReadAtUtc,
-            IsDeleted = m.IsDeleted
-        }).ToList();
+        var hasNextPage = found.Count > pageSize;
+        var page = found.Take(pageSize).ToArray();
 
         return new GetConversationResponse
         {
-            Messages = dtos,
-            TotalCount = messages.Count,
+            Messages = page.Select(message => ToMessageDto(message, conversation.Id)).ToList(),
+            TotalCount = page.Length,
             PageNumber = 1,
             PageSize = pageSize,
-            HasNextPage = hasNextPage
+            HasNextPage = hasNextPage,
+            NextPageToken = hasNextPage && page.Length > 0 ? page[^1].MessageTimestamp : null
         };
     }
 
-    /// <inheritdoc />
     public async Task<int> GetUnreadCountAsync(
-        Guid companyId,
-        Guid userId,
-        Guid? fromUserId = null,
-        CancellationToken cancellationToken = default)
+        Guid companyId, Guid userId, Guid? fromUserId = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
-            "Get unread count: Company={CompanyId}, User={UserId}, From={FromUserId}",
-            companyId, userId, fromUserId);
+        await EnsureMemberAsync(companyId, userId, cancellationToken);
+        if (fromUserId.HasValue)
+            await EnsureParticipantsAsync(companyId, userId, fromUserId.Value, cancellationToken);
 
-        return await _repository.GetUnreadCountAsync(companyId, userId, fromUserId, cancellationToken);
+        return await messages.GetUnreadCountAsync(companyId, userId, fromUserId, cancellationToken);
     }
 
-    /// <inheritdoc />
     public async Task MarkAsReadAsync(
-        Guid companyId,
-        Guid userId,
-        Guid fromUserId,
-        CancellationToken cancellationToken = default)
+        Guid companyId, Guid userId, Guid fromUserId, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
-            "Mark as read: Company={CompanyId}, User={UserId}, From={FromUserId}",
-            companyId, userId, fromUserId);
+        await EnsureParticipantsAsync(companyId, userId, fromUserId, cancellationToken);
+        var (user1, user2) = Normalize(userId, fromUserId);
+        var conversation = await conversations.GetAsync(companyId, user1, user2, cancellationToken)
+            ?? throw new KeyNotFoundException("Conversation was not found.");
 
-        await _repository.MarkAsReadAsync(companyId, userId, fromUserId, cancellationToken);
+        await messages.MarkAsReadAsync(companyId, userId, fromUserId, cancellationToken);
+        conversation.MarkAsRead(userId);
+        await conversations.SaveChangesAsync(cancellationToken);
+        await notifier.MessagesReadAsync(companyId, userId, fromUserId, cancellationToken);
     }
 
-    /// <inheritdoc />
-    public async Task<ConversationListResponse> GetConversationsAsync(
-        Guid companyId,
-        Guid userId,
-        bool includeArchived = false,
-        int pageSize = 20,
-        int pageNumber = 1,
-        CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation(
-            "Get conversations: Company={CompanyId}, User={UserId}, IncludeArchived={IncludeArchived}",
-            companyId, userId, includeArchived);
-
-        // TODO: This requires querying a separate conversation index table
-        // For now, stub implementation - will be implemented in Phase 3
-        // when we add the Conversation aggregate to database
-
-        return new ConversationListResponse
-        {
-            Conversations = new(),
-            TotalCount = 0,
-            IncludeArchived = includeArchived
-        };
-    }
-
-    /// <inheritdoc />
     public async Task<UnreadSummary> GetUnreadSummaryAsync(
-        Guid companyId,
-        Guid userId,
-        CancellationToken cancellationToken = default)
+        Guid companyId, Guid userId, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
-            "Get unread summary: Company={CompanyId}, User={UserId}",
-            companyId, userId);
-
-        // Get unread count by sender
-        var unreadBySender = await _repository.GetUnreadBySenderAsync(companyId, userId, cancellationToken);
-        var totalUnread = unreadBySender.Values.Sum();
-
+        await EnsureMemberAsync(companyId, userId, cancellationToken);
+        var unreadByUser = await messages.GetUnreadBySenderAsync(companyId, userId, cancellationToken);
         return new UnreadSummary
         {
-            TotalUnreadCount = totalUnread,
-            UnreadByUser = unreadBySender
+            TotalUnreadCount = unreadByUser.Values.Sum(),
+            UnreadByUser = unreadByUser
         };
     }
 
-    /// <inheritdoc />
     public async Task DeleteMessageAsync(
         Guid companyId,
         Guid userId,
@@ -208,19 +154,85 @@ public class ChatService : IChatService
         long messageTimestamp,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation(
-            "Delete message: Company={CompanyId}, User={UserId}, MessageId={MessageId}",
-            companyId, userId, messageId);
-
-        // Normalize user order
-        var (user1, user2) = userId < otherUserId
-            ? (userId, otherUserId)
-            : (otherUserId, userId);
-
-        // Delete from repository (soft delete)
-        await _repository.DeleteMessageAsync(
+        await EnsureParticipantsAsync(companyId, userId, otherUserId, cancellationToken);
+        var (user1, user2) = Normalize(userId, otherUserId);
+        await messages.DeleteMessageAsync(
             companyId, messageId, user1, user2, messageTimestamp, cancellationToken);
+    }
 
-        _logger.LogInformation("Message deleted: {MessageId}", messageId);
+    private async Task EnsureParticipantsAsync(
+        Guid companyId, Guid userId, Guid otherUserId, CancellationToken ct)
+    {
+        if (userId == otherUserId)
+            throw new ArgumentException("Cannot start a conversation with yourself.", nameof(otherUserId));
+        if (companyId == Guid.Empty || userId == Guid.Empty || otherUserId == Guid.Empty)
+            throw new ArgumentException("Company and user IDs are required.");
+
+        await EnsureMemberAsync(companyId, userId, ct);
+        await EnsureMemberAsync(companyId, otherUserId, ct);
+    }
+
+    private async Task EnsureMemberAsync(Guid companyId, Guid userId, CancellationToken ct)
+    {
+        if (!await companies.IsMemberAsync(companyId, userId, ct))
+            throw new UnauthorizedAccessException("Chat is limited to active members of the same company.");
+    }
+
+    private async Task<ConversationDto> ToConversationDtoAsync(
+        Conversation conversation, Guid userId, CancellationToken ct)
+    {
+        var otherUserId = conversation.UserId1 == userId ? conversation.UserId2 : conversation.UserId1;
+        var members = await companies.GetMembersAsync(conversation.CompanyId, userId, ct);
+        var otherUser = members.FirstOrDefault(member => member.UserId == otherUserId)
+            ?? throw new UnauthorizedAccessException("Conversation participant is no longer a company member.");
+
+        var lastMessage = conversation.LastMessageTimestamp.HasValue
+            ? (await messages.GetConversationAsync(
+                conversation.CompanyId, conversation.UserId1, conversation.UserId2, 1, null, ct))
+                .FirstOrDefault()
+            : null;
+        var unreadCount = await messages.GetUnreadCountAsync(
+            conversation.CompanyId, userId, otherUserId, ct);
+        var timestamp = conversation.LastMessageTimestamp.HasValue
+            ? DateTimeOffset.FromUnixTimeMilliseconds(conversation.LastMessageTimestamp.Value).UtcDateTime
+            : conversation.CreatedAtUtc;
+
+        return new ConversationDto
+        {
+            Id = conversation.Id,
+            CompanyId = conversation.CompanyId,
+            OtherUserId = otherUserId,
+            OtherUserName = $"{otherUser.FirstName} {otherUser.LastName}".Trim(),
+            LastMessageAtUtc = lastMessage?.CreatedAtUtc,
+            LastMessageTimestamp = timestamp,
+            LastMessagePreview = lastMessage?.IsDeleted == true ? "Message deleted" : lastMessage?.Content,
+            UnreadCount = unreadCount,
+            IsArchived = conversation.IsArchived(userId)
+        };
+    }
+
+    private static ChatMessageDto ToMessageDto(ChatMessage message, Guid conversationId) => new()
+    {
+        Id = message.Id,
+        ConversationId = conversationId,
+        CompanyId = message.CompanyId,
+        SenderId = message.SenderId,
+        ReceiverId = message.ReceiverId,
+        Content = message.Content,
+        CreatedAtUtc = message.CreatedAtUtc,
+        IsRead = message.IsRead,
+        ReadAtUtc = message.ReadAtUtc,
+        IsDeleted = message.IsDeleted
+    };
+
+    private static (Guid User1, Guid User2) Normalize(Guid userId1, Guid userId2) =>
+        userId1 < userId2 ? (userId1, userId2) : (userId2, userId1);
+
+    private static void ValidatePage(int pageSize, int pageNumber)
+    {
+        if (pageSize is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(pageSize), "Page size must be between 1 and 100.");
+        if (pageNumber < 1)
+            throw new ArgumentOutOfRangeException(nameof(pageNumber), "Page number must be positive.");
     }
 }

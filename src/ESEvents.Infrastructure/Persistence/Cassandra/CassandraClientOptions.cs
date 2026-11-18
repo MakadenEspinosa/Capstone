@@ -15,7 +15,7 @@ public class CassandraClientOptions
     
     public string Keyspace { get; set; } = "chat_logs";
     
-    public int ReplicationFactor { get; set; } = 3;
+    public int ReplicationFactor { get; set; } = 1;
     
     public string ConsistencyLevel { get; set; } = "LOCAL_QUORUM";
     

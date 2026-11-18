@@ -1,3 +1,5 @@
+using ESEvents.Application.Companies;
+
 namespace ESEvents.Application.Chat;
 
 /// <summary>
@@ -6,6 +8,12 @@ namespace ESEvents.Application.Chat;
 /// </summary>
 public interface IChatService
 {
+    Task<CreateConversationResponse> CreateConversationAsync(
+        Guid companyId, Guid userId, Guid otherUserId, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CompanyMemberDto>> GetCompanyMembersAsync(
+        Guid companyId, Guid userId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Sends a message from one user to another.
     /// Validates permissions, creates domain entity, persists to repository.
@@ -22,6 +30,14 @@ public interface IChatService
         Guid senderId,
         Guid receiverId,
         string content,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ConversationDto>> GetConversationsAsync(
+        Guid companyId,
+        Guid userId,
+        bool includeArchived = false,
+        int pageSize = 20,
+        int pageNumber = 1,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -68,25 +84,6 @@ public interface IChatService
         Guid companyId,
         Guid userId,
         Guid fromUserId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Gets list of recent conversations for a user.
-    /// Sorted by last message timestamp descending.
-    /// Optionally includes archived conversations.
-    /// </summary>
-    /// <param name="companyId">Company ID</param>
-    /// <param name="userId">User requesting conversations</param>
-    /// <param name="includeArchived">Include archived conversations</param>
-    /// <param name="pageSize">Results per page</param>
-    /// <param name="pageNumber">Page number (1-based)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    Task<ConversationListResponse> GetConversationsAsync(
-        Guid companyId,
-        Guid userId,
-        bool includeArchived = false,
-        int pageSize = 20,
-        int pageNumber = 1,
         CancellationToken cancellationToken = default);
 
     /// <summary>
