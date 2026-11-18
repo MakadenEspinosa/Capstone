@@ -23,12 +23,12 @@
                          Counter="5000"
                          MaxLength="5000"
                          OnKeyDown="HandleKeyDown"
-                         Disabled="!IsConnected || IsLoading"
+                         Disabled="IsLoading"
                          Class="flex-grow-1" />
 
             <!-- Send Button -->
             <MudButton OnClick="SendMessageAsync"
-                       Disabled="!IsConnected || IsLoading || string.IsNullOrWhiteSpace(messageContent)"
+                       Disabled="IsLoading || string.IsNullOrWhiteSpace(messageContent)"
                        Variant="Variant.Filled"
                        Color="Color.Primary">
                 @if (IsLoading)

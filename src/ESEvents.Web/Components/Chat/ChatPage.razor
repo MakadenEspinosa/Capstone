@@ -44,7 +44,7 @@
                                  SearchFunc="SearchCompanyMembersAsync"
                                  ToStringFunc="GetCompanyMemberName"
                                  Variant="Variant.Outlined" Dense="true" Clearable="true"
-                                 MinCharacters="0" Style="max-width: 320px;" />
+                                 MinCharacters="0" OpenOnFocus="true" ResetValueOnEmptyText="true" Style="max-width: 320px;" />
             }
             else
             {
@@ -91,7 +91,7 @@
                                  SearchFunc="SearchCompanyUsersAsync"
                                  ToStringFunc="GetCompanyUserName"
                                  Variant="Variant.Outlined" Dense="true" Clearable="true"
-                                 MinCharacters="0" Style="max-width: 360px;" />
+                                 MinCharacters="0" OpenOnFocus="true" ResetValueOnEmptyText="true" Style="max-width: 360px;" />
                 <MudButton Variant="Variant.Outlined" Color="Color.Primary"
                            Disabled="!memberToAddUserId.HasValue || isAddingMember"
                            OnClick="AddCompanyMemberAsync">
@@ -371,12 +371,16 @@
 
     private async Task SendMessageAsync(string content)
     {
-        if (string.IsNullOrWhiteSpace(content))
+        if (string.IsNullOrWhiteSpace(content) || selectedConversation is null)
             return;
 
         try
         {
             isSendingMessage = true;
+            // The shared per-circuit connection can be dropped by another page's disposal; restore it.
+            if (!SignalRService.IsConnected)
+                await ConnectToCompanyAsync();
+            isConnected = SignalRService.IsConnected;
             await SignalRService.SendMessageAsync(companyId, selectedConversation.OtherUserId, content);
         }
         catch (Exception ex)
