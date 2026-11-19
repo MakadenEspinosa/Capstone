@@ -1,6 +1,6 @@
 # E-S Events
 
-E-S Events is a capstone project for account management and, ultimately, event coordination. The current working MVP focuses on registration, sign-in, and user profile administration. Event-related domain models exist, but event creation and management are not available in the UI or API yet.
+E-S Events is a capstone project for account management and event coordination. It includes a calendar for creating and managing events and exporting visible event data.
 
 ## Current functionality
 
@@ -9,6 +9,7 @@ E-S Events is a capstone project for account management and, ultimately, event c
 - View and update your own profile, or permanently delete your account.
 - As an administrator, view, update, and delete user accounts.
 - Access user-management endpoints protected by authentication and authorization.
+- View and manage calendar events and export visible events to Word or Excel.
 - Persist application and identity data in PostgreSQL.
 
 Newly registered accounts receive the standard `User` role. Administrator-only features are implemented, but the project does not currently include an administrator bootstrap or role-management workflow.
@@ -21,6 +22,7 @@ Newly registered accounts receive the standard `User` role. Administrator-only f
 | `/ui/register` | Public |
 | `/ui/user` | Signed-in users |
 | `/ui/users` | Administrators |
+| `/ui/calendar` | Signed-in users |
 
 ### HTTP API
 
@@ -35,6 +37,7 @@ Newly registered accounts receive the standard `User` role. Administrator-only f
 | `GET` | `/api/users/{id}` | Account owner or administrator |
 | `PUT` | `/api/users/{id}` | Account owner or administrator |
 | `DELETE` | `/api/users/{id}` | Account owner or administrator |
+| `GET` | `/api/events/export/{format}` | Signed-in users; visible events only |
 
 State-changing requests must include a valid antiforgery token. For API clients, first call `GET /api/auth/csrf`, retain the antiforgery cookie, and send the returned `RequestToken` in the `X-CSRF-TOKEN` header on `POST`, `PUT`, and `DELETE` requests.
 
@@ -48,6 +51,17 @@ The OpenAPI document is available at `/openapi/v1.json` in the Development envir
 - Entity Framework Core with PostgreSQL
 - Docker Compose and NGINX for containerized deployment
 - xUnit for domain tests
+
+## Export calendar events
+
+On the calendar page, select **Export** to download the displayed calendar dates as
+Word (`.docx`) or Excel (`.xlsx`). You can change the inclusive start and end dates
+and optionally include participants and their event roles. Exports include only
+events visible to your account, including events that overlap the selected range.
+Participant details are included only for events you organize or administer,
+matching the calendar's event-details view.
+Dates and times are shown in your browser's time zone, which is labeled in the
+report. Excel dates are stored as date/time values for sorting and filtering.
 
 ## Repository structure
 
@@ -143,4 +157,4 @@ The current test project covers domain behavior; web and API integration tests a
 
 ## Project status
 
-This is a work in progress. The current MVP delivers user account and profile management. Although the domain layer contains event and participant models, there are not yet event-management pages, application services, or API endpoints.
+This is a work in progress with user-account, event-management, and calendar-export functionality.

@@ -4,3 +4,14 @@ GET {{ESEvents.Web_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+# Requires an authenticated session cookie. Dates are inclusive in the requested time zone.
+GET {{ESEvents.Web_HostAddress}}/api/events/export/docx?start=2026-11-01&end=2026-11-30&timeZone=America%2FDenver&includeParticipants=true
+
+###
+
+GET {{ESEvents.Web_HostAddress}}/api/events/export/xlsx?start=2026-11-01&end=2026-11-30&timeZone=America%2FDenver&includeParticipants=false
+
+###
+
+GET {{ESEvents.Web_HostAddress}}/api/events/export/xlsx?start=2026-11-30&end=2026-11-01&timeZone=UTC

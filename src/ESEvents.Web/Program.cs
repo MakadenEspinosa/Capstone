@@ -24,6 +24,7 @@ builder.Services.AddSingleton<ChatCircuitRegistry>();
 builder.Services.AddScoped<IChatNotifier, SignalRChatNotifier>();
 
 builder.Services.AddScoped<ISignalRService, SignalRService>();
+builder.Services.AddScoped<IEventExportService, EventExportService>();
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)

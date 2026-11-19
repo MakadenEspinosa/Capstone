@@ -5,6 +5,7 @@
 @inject IDepartmentService DepartmentService
 @inject IUserService UserService
 @inject IJSRuntime JavaScript
+@inject ILogger<Calendar> Logger
 
 <PageTitle>Calendar | E-S Events</PageTitle>
 <div class="calendar-heading">
@@ -12,14 +13,44 @@
         <MudText Typo="Typo.h4" GutterBottom="true">Event calendar</MudText>
         <MudText Typo="Typo.body2" Class="status-line">Events for you, your event roles, and your departments</MudText>
     </div>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="BeginCreate">
-        New event
-    </MudButton>
+    <div class="calendar-actions">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="BeginExport">
+            Export
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="BeginCreate">
+            New event
+        </MudButton>
+    </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(message))
 {
     <MudAlert Severity="@messageSeverity" Class="form-alert">@message</MudAlert>
+}
+
+@if (showExport)
+{
+    <MudPaper Class="calendar-editor" Elevation="1">
+        <div class="calendar-editor-heading">
+            <MudText Typo="Typo.h6">Export events</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="Close export options" OnClick="() => showExport = false" />
+        </div>
+        <MudText Typo="Typo.body2">Exports include events visible to you. Dates and times use your browser's time zone.</MudText>
+        <label class="calendar-input">
+            <span>From</span>
+            <input type="date" value="@exportStart" @onchange="args => exportStart = args.Value?.ToString() ?? string.Empty" />
+        </label>
+        <label class="calendar-input">
+            <span>Through (inclusive)</span>
+            <input type="date" value="@exportEnd" @onchange="args => exportEnd = args.Value?.ToString() ?? string.Empty" />
+        </label>
+        <MudCheckBox T="bool" Label="Include participants and their roles" @bind-Value="exportParticipants" />
+        <MudText Typo="Typo.caption">Participant details are included only for events you organize or administer.</MudText>
+        <div class="calendar-actions">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@exporting" OnClick='() => DownloadExport("docx")'>Download Word</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@exporting" OnClick='() => DownloadExport("xlsx")'>Download Excel</MudButton>
+        </div>
+    </MudPaper>
 }
 
 <div class="calendar-layout">
@@ -125,6 +156,11 @@
     private bool isAdministrator;
     private bool canManageSelected;
     private bool showEditor;
+    private bool showExport;
+    private bool exportParticipants;
+    private bool exporting;
+    private string exportStart = string.Empty;
+    private string exportEnd = string.Empty;
     private string? message;
     private Severity messageSeverity = Severity.Info;
     private IEnumerable<UserDto> availableParticipants => users.Where(u =>
@@ -161,6 +197,52 @@
         var start = DateTimeOffset.Parse(rangeStart, CultureInfo.InvariantCulture);
         var end = DateTimeOffset.Parse(rangeEnd, CultureInfo.InvariantCulture);
         return (await EventService.GetCalendarEventsAsync(userId, isAdministrator, start, end)).ToArray();
+    }
+
+    private async Task BeginExport()
+    {
+        try
+        {
+            var range = await JavaScript.InvokeAsync<string[]>("eseventsCalendar.getVisibleDates");
+            exportStart = range[0];
+            exportEnd = range[1];
+            showExport = true;
+            message = null;
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Could not read the calendar dates for export.");
+            message = "Could not read the calendar dates. Please reload the page and try again. If the problem persists, check the application logs.";
+            messageSeverity = Severity.Error;
+        }
+    }
+
+    private async Task DownloadExport(string format)
+    {
+        if (!DateOnly.TryParseExact(exportStart, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start) ||
+            !DateOnly.TryParseExact(exportEnd, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var end) ||
+            end < start)
+        {
+            message = "Choose a valid date range with an end date on or after the start date.";
+            messageSeverity = Severity.Warning;
+            return;
+        }
+
+        exporting = true;
+        message = null;
+        try
+        {
+            await JavaScript.InvokeVoidAsync("eseventsCalendar.downloadExport", format, exportStart, exportEnd, exportParticipants);
+        }
+        catch (JSException exception)
+        {
+            message = $"Export failed: {exception.Message}";
+            messageSeverity = Severity.Error;
+        }
+        finally
+        {
+            exporting = false;
+        }
     }
 
     [JSInvokable]

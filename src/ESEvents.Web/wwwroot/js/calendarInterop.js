@@ -87,6 +87,44 @@ window.eseventsCalendar = (() => {
         refresh() {
             calendar?.refetchEvents();
         },
+        getVisibleDates() {
+            if (!calendar) throw new Error("The calendar is not ready.");
+            const lastDay = new Date(calendar.view.activeEnd);
+            lastDay.setDate(lastDay.getDate() - 1);
+            const formatDate = date => {
+                const pad = value => String(value).padStart(2, "0");
+                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+            };
+            return [formatDate(calendar.view.activeStart), formatDate(lastDay)];
+        },
+        async downloadExport(format, start, end, includeParticipants) {
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (!timeZone) throw new Error("The browser could not determine your time zone.");
+            const query = new URLSearchParams({ start, end, timeZone, includeParticipants: String(includeParticipants) });
+            const response = await fetch(`/api/events/export/${encodeURIComponent(format)}?${query}`, {
+                credentials: "same-origin",
+                cache: "no-store"
+            });
+            if (!response.ok) {
+                let detail = `Request failed (${response.status}).`;
+                if (response.headers.get("content-type")?.includes("json")) {
+                    const problem = await response.json();
+                    detail = problem.detail || problem.title || detail;
+                }
+                throw new Error(detail);
+            }
+            const url = URL.createObjectURL(await response.blob());
+            try {
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `events-${start}-to-${end}.${format}`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        },
         destroy() {
             calendar?.destroy();
             calendar = undefined;
