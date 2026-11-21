@@ -65,17 +65,31 @@ report. Excel dates are stored as date/time values for sorting and filtering.
 
 ## Company management (in progress)
 
-The Company page moves the existing company setup out of chat. Platform
-administrators can create a company for an unassigned account and add an active,
-unassigned user by exact email. Profiles display the company name, `Unassigned`,
-or a legacy multiple-membership warning.
+The Company page moves company setup out of chat. An unassigned user can create
+a company (becoming its owner) or join with a company code. Company administrators
+can add an active unassigned user by exact email and generate member codes. Only
+the owner can generate administrator codes, change administrator roles, or
+transfer ownership to another administrator. Generating a code invalidates its
+previous value; codes are shown only once and stored as hashes. Transferring
+ownership invalidates the administrator code.
 
 **Company data is not isolated yet. Do not use the application for confidential
-data from separate companies.** Company-specific administrator roles, join codes,
-ownership transfer, safe member removal, and the legacy-data migration have not
-been implemented. The current checks against multiple company membership do not
-yet provide a database-level concurrency guarantee. Existing events and
-departments have not been deleted or migrated.
+data from separate companies.** Member removal and account deletion for company
+members are blocked until event ownership and access revocation can be handled
+safely. Existing events and departments have not been deleted or migrated.
+
+The initial isolation migration adds nullable company references to events and
+departments without assigning existing records. This is groundwork only: current
+creation flows do not populate those references, and queries and permissions do
+not yet enforce them. They must not be used as evidence of company isolation.
+
+The onboarding migration enforces one company per account. If existing users
+belong to multiple companies, migration stops without choosing or removing any
+membership; resolve those memberships manually before restarting. Existing
+companies are not automatically assigned an owner. A platform administrator can
+use `POST /api/companies/{companyId}/recover-owner` with `{"userId":"..."}` to
+assign an active existing member as the owner of an ownerless company. The
+request requires authentication and an antiforgery token.
 
 ## Repository structure
 

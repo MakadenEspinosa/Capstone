@@ -5,6 +5,29 @@ namespace ESEvents.Domain.Tests;
 
 public class EventTests
 {
+    [Fact]
+    public void Create_StoresCompanyWhenProvided()
+    {
+        var companyId = Guid.NewGuid();
+        var start = DateTimeOffset.UtcNow;
+        var @event = Event.Create("Planning", start, start.AddHours(1), false, Guid.NewGuid(), companyId: companyId);
+        Assert.Equal(companyId, @event.CompanyId);
+        @event.UpdateDetails("Updated", start, start.AddHours(1), false, null, null);
+        Assert.Equal(companyId, @event.CompanyId);
+    }
+
+    [Fact]
+    public void Create_RejectsEmptyCompanyId()
+    {
+        var start = DateTimeOffset.UtcNow;
+        Assert.Throws<DomainException>(() =>
+            Event.Create("Planning", start, start.AddHours(1), false, Guid.NewGuid(), companyId: Guid.Empty));
+    }
+
+    [Fact]
+    public void Create_WithoutCompanyRemainsUnassigned() =>
+        Assert.Null(NewEvent().CompanyId);
+
     private static Event NewEvent(Guid? departmentId = null, Guid? organizerUserId = null) =>
         Event.Create("Planning", DateTimeOffset.Parse("2026-11-02T10:00:00-05:00"),
             DateTimeOffset.Parse("2026-11-02T11:00:00-05:00"), false, organizerUserId ?? Guid.NewGuid(), departmentId);

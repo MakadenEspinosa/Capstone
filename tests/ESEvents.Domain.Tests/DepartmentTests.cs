@@ -6,6 +6,24 @@ namespace ESEvents.Domain.Tests;
 public class DepartmentTests
 {
     [Fact]
+    public void Create_StoresCompanyWhenProvided()
+    {
+        var companyId = Guid.NewGuid();
+        var department = Department.Create("Sales", companyId: companyId);
+        Assert.Equal(companyId, department.CompanyId);
+        department.Update("Marketing", null);
+        Assert.Equal(companyId, department.CompanyId);
+    }
+
+    [Fact]
+    public void Create_RejectsEmptyCompanyId() =>
+        Assert.Throws<DomainException>(() => Department.Create("Sales", companyId: Guid.Empty));
+
+    [Fact]
+    public void Create_WithoutCompanyRemainsUnassigned() =>
+        Assert.Null(Department.Create("Sales").CompanyId);
+
+    [Fact]
     public void Create_TrimsAndNormalizesName()
     {
         var department = Department.Create("  Human Resources ", "  People ops ");

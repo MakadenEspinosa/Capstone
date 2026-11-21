@@ -1,5 +1,55 @@
 @ESEvents.Web_HostAddress = http://localhost:5175
 
+# Company requests require an authenticated cookie and an X-CSRF-TOKEN header.
+# Replace the placeholder IDs, code, and token before sending requests.
+@companyId = 00000000-0000-0000-0000-000000000001
+@memberId = 00000000-0000-0000-0000-000000000002
+@csrf = replace-me
+
+### Join by code
+POST {{ESEvents.Web_HostAddress}}/api/companies/join
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"code":"replace-with-code"}
+
+### Generate a member code (replace member with admin for an owner-only admin code)
+POST {{ESEvents.Web_HostAddress}}/api/companies/{{companyId}}/codes/member
+X-CSRF-TOKEN: {{csrf}}
+
+### Add an unassigned user by exact email
+POST {{ESEvents.Web_HostAddress}}/api/companies/{{companyId}}/members
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"email":"member@example.test"}
+
+### List members for company management
+GET {{ESEvents.Web_HostAddress}}/api/companies/{{companyId}}/management-members
+
+### Change an existing member's role (owner only)
+PUT {{ESEvents.Web_HostAddress}}/api/companies/{{companyId}}/members/{{memberId}}/role
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"administrator":true}
+
+### Transfer ownership to an administrator (owner only)
+POST {{ESEvents.Web_HostAddress}}/api/companies/{{companyId}}/ownership
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"userId":"{{memberId}}"}
+
+### Recover an ownerless legacy company (platform administrator only)
+POST {{ESEvents.Web_HostAddress}}/api/companies/{{companyId}}/recover-owner
+Content-Type: application/json
+X-CSRF-TOKEN: {{csrf}}
+
+{"userId":"{{memberId}}"}
+
+###
+
 GET {{ESEvents.Web_HostAddress}}/weatherforecast/
 Accept: application/json
 

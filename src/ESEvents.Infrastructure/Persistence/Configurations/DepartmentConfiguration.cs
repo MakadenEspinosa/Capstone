@@ -14,6 +14,10 @@ internal sealed class DepartmentConfiguration : IEntityTypeConfiguration<Departm
         b.Property(d => d.NormalizedName).HasMaxLength(Department.MaxNameLength).IsRequired();
         b.Property(d => d.Description).HasMaxLength(Department.MaxDescriptionLength);
         b.HasIndex(d => d.NormalizedName).IsUnique();
+        b.HasOne<Domain.Companies.Company>()
+            .WithMany()
+            .HasForeignKey(d => d.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         b.HasMany(d => d.Members)
             .WithOne()

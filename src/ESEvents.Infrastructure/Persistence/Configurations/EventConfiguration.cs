@@ -16,6 +16,10 @@ internal sealed class EventConfiguration : IEntityTypeConfiguration<Event>
         b.Property(e => e.EndsAtUtc).IsRequired();
         b.Property(e => e.IsAllDay).IsRequired();
         b.HasIndex(e => new { e.StartsAtUtc, e.EndsAtUtc });
+        b.HasOne<Domain.Companies.Company>()
+            .WithMany()
+            .HasForeignKey(e => e.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Domain.Departments.Department>()
             .WithMany()
             .HasForeignKey(e => e.DepartmentId)

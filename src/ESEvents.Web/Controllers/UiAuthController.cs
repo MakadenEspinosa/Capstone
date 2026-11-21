@@ -1,4 +1,5 @@
 using ESEvents.Domain.Users;
+using ESEvents.Application.Companies;
 using ESEvents.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -9,7 +10,8 @@ namespace ESEvents.Web.Controllers;
 [Route("ui/auth")]
 public sealed class UiAuthController(
     UserManager<ApplicationIdentityUser> users,
-    SignInManager<ApplicationIdentityUser> signInManager) : Controller
+    SignInManager<ApplicationIdentityUser> signInManager,
+    ICompanyService companies) : Controller
 {
     [HttpPost("login")]
     [AllowAnonymous]
@@ -28,9 +30,10 @@ public sealed class UiAuthController(
         if (!result.Succeeded)
             return Redirect("/ui/login?error=1");
 
-        return Url.IsLocalUrl(form.ReturnUrl)
-            ? LocalRedirect(form.ReturnUrl!)
-            : Redirect("/ui/user");
+        if (Url.IsLocalUrl(form.ReturnUrl))
+            return LocalRedirect(form.ReturnUrl!);
+        var memberships = await companies.GetForUserAsync(user.Id, HttpContext.RequestAborted);
+        return Redirect(memberships.Count == 0 ? "/ui/company" : "/ui/user");
     }
 
     [HttpPost("logout")]

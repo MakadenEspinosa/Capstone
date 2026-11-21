@@ -83,6 +83,13 @@ public sealed class ChatServiceTests
 
     private sealed class FakeCompanyService(Guid companyId, params Guid[] members) : ICompanyService
     {
+        public Task<CompanyDto> JoinAsync(string code, Guid userId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<string> RotateCodeAsync(Guid id, Guid requesterId, bool administratorCode, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task AddByEmailAsync(Guid id, Guid requesterId, string email, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task ChangeRoleAsync(Guid id, Guid requesterId, Guid userId, bool administrator, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task TransferOwnershipAsync(Guid id, Guid requesterId, Guid successorId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task RecoverOwnershipAsync(Guid id, Guid requesterId, Guid newOwnerId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<CompanyManagementMemberDto>> GetManagementMembersAsync(Guid id, Guid requesterId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<CompanyDto> CreateAsync(string name, Guid creatorId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 

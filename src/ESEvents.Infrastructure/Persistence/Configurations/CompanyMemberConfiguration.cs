@@ -16,6 +16,7 @@ internal sealed class CompanyMemberConfiguration : IEntityTypeConfiguration<Comp
             .WithMany()
             .HasForeignKey(member => member.UserId)
             .OnDelete(DeleteBehavior.Cascade);
-        builder.HasIndex(member => member.UserId);
+        builder.HasIndex(member => member.UserId).IsUnique();
+        builder.Property(member => member.Role).IsRequired();
     }
 }

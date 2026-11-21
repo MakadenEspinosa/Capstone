@@ -76,8 +76,16 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AdminCodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MemberCodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -90,9 +98,16 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)");
 
                     b.Property<DateTime?>("UpdatedAtUtc")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AdminCodeHash")
+                        .IsUnique();
+
+                    b.HasIndex("MemberCodeHash")
+                        .IsUnique();
 
                     b.HasIndex("NormalizedName")
                         .IsUnique();
@@ -111,9 +126,13 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("AddedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
                     b.HasKey("CompanyId", "UserId");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId")
+                        .IsUnique();
 
                     b.ToTable("company_members", (string)null);
                 });
@@ -122,6 +141,9 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CompanyId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAtUtc")
@@ -145,6 +167,8 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
 
                     b.HasIndex("NormalizedName")
                         .IsUnique();
@@ -176,6 +200,9 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -204,6 +231,8 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
 
                     b.HasIndex("DepartmentId");
 
@@ -539,6 +568,14 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ESEvents.Domain.Departments.Department", b =>
+                {
+                    b.HasOne("ESEvents.Domain.Companies.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("ESEvents.Domain.Departments.DepartmentMember", b =>
                 {
                     b.HasOne("ESEvents.Domain.Departments.Department", null)
@@ -556,6 +593,11 @@ namespace ESEvents.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("ESEvents.Domain.Events.Event", b =>
                 {
+                    b.HasOne("ESEvents.Domain.Companies.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ESEvents.Domain.Departments.Department", null)
                         .WithMany()
                         .HasForeignKey("DepartmentId")

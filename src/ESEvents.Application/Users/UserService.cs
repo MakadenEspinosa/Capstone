@@ -1,10 +1,11 @@
 using ESEvents.Application.Abstractions;
+using ESEvents.Application.Companies;
 using ESEvents.Domain.Common;
 using ESEvents.Domain.Users;
 
 namespace ESEvents.Application.Users;
 
-public sealed class UserService(IUserRepository users, IPasswordHasher hasher, IUnitOfWork uow) : IUserService
+public sealed class UserService(IUserRepository users, IPasswordHasher hasher, IUnitOfWork uow, ICompanyRepository companies) : IUserService
 {
     public async Task<UserDto> RegisterAsync(RegisterUserRequest request, CancellationToken ct = default)
     {
@@ -47,6 +48,11 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher, I
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
+        var memberships = await companies.GetForUserAsync(id, ct);
+        if (memberships.Any(company => company.Members.Any(member => member.UserId == id && member.Role == ESEvents.Domain.Companies.CompanyRole.Owner)))
+            throw new DomainConflictException("Transfer company ownership before deleting this account.");
+        if (memberships.Count > 0)
+            throw new DomainConflictException("Account deletion is unavailable for company members until safe removal is implemented.");
         var deleted = await users.DeleteAsync(id, ct);
         if (!deleted)
             return false;
@@ -55,7 +61,13 @@ public sealed class UserService(IUserRepository users, IPasswordHasher hasher, I
         return true;
     }
 
-    public Task SuspendAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Suspend(), ct);
+    public async Task SuspendAsync(Guid id, CancellationToken ct = default)
+    {
+        var memberships = await companies.GetForUserAsync(id, ct);
+        if (memberships.Any(company => company.Members.Any(member => member.UserId == id && member.Role == ESEvents.Domain.Companies.CompanyRole.Owner)))
+            throw new DomainConflictException("Transfer company ownership before suspending this account.");
+        await MutateAsync(id, u => u.Suspend(), ct);
+    }
     public Task ReinstateAsync(Guid id, CancellationToken ct = default) => MutateAsync(id, u => u.Reinstate(), ct);
     private async Task MutateAsync(Guid id, Action<User> action, CancellationToken ct)
     {

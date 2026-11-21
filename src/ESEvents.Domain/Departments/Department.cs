@@ -12,13 +12,15 @@ public sealed class Department : Entity
     public string Name { get; private set; } = null!;
     public string NormalizedName { get; private set; } = null!;
     public string? Description { get; private set; }
+    public Guid? CompanyId { get; private set; }
     public IReadOnlyCollection<DepartmentMember> Members => _members;
 
     private Department() { }
 
-    public static Department Create(string? name, string? description = null)
+    public static Department Create(string? name, string? description = null, Guid? companyId = null)
     {
-        var department = new Department();
+        if (companyId == Guid.Empty) throw new DomainException("Company id cannot be empty.");
+        var department = new Department { CompanyId = companyId };
         department.SetDetails(name, description);
         return department;
     }

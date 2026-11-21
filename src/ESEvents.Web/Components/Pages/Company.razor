@@ -3,13 +3,13 @@
 @using ESEvents.Application.Companies
 @using ESEvents.Domain.Common
 @inject ICompanyService CompanyService
-@inject IUserService UserService
 @inject ILogger<Company> Logger
+@inject IJSRuntime JavaScript
 
 <PageTitle>Company | E-S Events</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Company</MudText>
 <MudAlert Severity="Severity.Warning" Class="form-alert">
-    Company isolation and join codes are not implemented yet. Do not use this application for
+    Company isolation is not implemented yet. Do not use this application for
     separate companies' private data until company isolation is complete.
 </MudAlert>
 @if (!string.IsNullOrEmpty(message))
@@ -28,15 +28,10 @@ else if (companies.Count == 0)
 {
     <MudPaper Class="page-panel" Elevation="1">
         <MudText>Your account is unassigned.</MudText>
-        @if (isPlatformAdministrator)
-        {
-            <MudTextField T="string" Label="Company name" @bind-Value="companyName" MaxLength="150" Class="field-gap" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@busy">Create company</MudButton>
-        }
-        else
-        {
-            <MudText>Ask a platform administrator to add your account. Company join codes are not available yet.</MudText>
-        }
+        <MudTextField T="string" Label="Company name" @bind-Value="companyName" MaxLength="150" Class="field-gap" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@busy">Create company</MudButton>
+        <MudTextField T="string" Label="Company join code" @bind-Value="joinCode" Class="field-gap" />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="JoinAsync" Disabled="@busy">Join company</MudButton>
     </MudPaper>
 }
 else if (companies.Count > 1)
@@ -48,10 +43,35 @@ else
     <MudPaper Class="page-panel" Elevation="1">
         <MudText Typo="Typo.h6">@companies[0].Name</MudText>
         <MudText>Members: @companies[0].MemberCount</MudText>
-        @if (isPlatformAdministrator)
+        <MudText>Role: @companies[0].CurrentUserRole</MudText>
+        @if (isManager)
         {
             <MudTextField T="string" Label="Exact email of unassigned user" @bind-Value="email" InputType="InputType.Email" Class="field-gap" />
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddMemberAsync" Disabled="@busy">Add member</MudButton>
+            <MudText Class="field-gap">Generating a code replaces the previous code. Copy it now; it cannot be displayed again. Anyone with an administrator code can become an administrator.</MudText>
+            <MudButton Variant="Variant.Outlined" OnClick="() => RotateAsync(false)" Disabled="@busy">Generate member code</MudButton>
+            @if (isOwner)
+            {
+                <MudButton Variant="Variant.Outlined" OnClick="() => RotateAsync(true)" Disabled="@busy">Generate administrator code</MudButton>
+            }
+            @if (!string.IsNullOrEmpty(generatedCode))
+            {
+                <MudText Class="field-gap">New @generatedCodeKind code: @generatedCode</MudText>
+            }
+            @foreach (var member in members)
+            {
+                <MudText Class="field-gap">@member.FirstName @member.LastName — @member.Role</MudText>
+                @if (isOwner && member.UserId != userId)
+                {
+                    <MudButton Variant="Variant.Text" Disabled="@busy" OnClick="() => ChangeRoleAsync(member)">
+                        @(member.Role == "Administrator" ? "Make member" : "Make administrator")
+                    </MudButton>
+                    @if (member.Role == "Administrator")
+                    {
+                        <MudButton Variant="Variant.Text" Disabled="@busy" OnClick="() => TransferAsync(member.UserId)">Transfer ownership</MudButton>
+                    }
+                }
+            }
         }
     </MudPaper>
 }
@@ -60,12 +80,17 @@ else
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
     private IReadOnlyList<CompanyDto> companies = [];
     private Guid userId;
-    private bool isPlatformAdministrator;
+    private bool isManager => companies.Count == 1 && companies[0].CurrentUserRole is "Administrator" or "Owner";
+    private bool isOwner => companies.Count == 1 && companies[0].CurrentUserRole == "Owner";
     private bool loading = true;
     private bool loadFailed;
     private bool busy;
     private string companyName = string.Empty;
     private string email = string.Empty;
+    private string joinCode = string.Empty;
+    private string? generatedCode;
+    private string? generatedCodeKind;
+    private IReadOnlyList<CompanyManagementMemberDto> members = [];
     private string? message;
     private Severity severity = Severity.Info;
 
@@ -80,10 +105,9 @@ else
             loading = false;
             return;
         }
-        isPlatformAdministrator = state.User.HasClaim("system_role", "Administrator");
         try
         {
-            companies = await CompanyService.GetForUserAsync(userId);
+            await ReloadAsync();
         }
         catch (Exception exception)
         {
@@ -100,12 +124,12 @@ else
 
     private async Task CreateAsync()
     {
-        if (!isPlatformAdministrator || busy) return;
+        if (busy) return;
         busy = true;
         try
         {
             await CompanyService.CreateAsync(companyName, userId);
-            companies = await CompanyService.GetForUserAsync(userId);
+            await ReloadAsync();
             companyName = string.Empty;
             message = "Company created.";
             severity = Severity.Success;
@@ -126,7 +150,7 @@ else
 
     private async Task AddMemberAsync()
     {
-        if (!isPlatformAdministrator || busy || companies.Count != 1) return;
+        if (!isManager || busy || companies.Count != 1) return;
         if (string.IsNullOrWhiteSpace(email))
         {
             message = "Enter the user's exact email.";
@@ -136,22 +160,8 @@ else
         busy = true;
         try
         {
-            var user = (await UserService.GetAllAsync()).FirstOrDefault(u =>
-                string.Equals(u.Email, email.Trim(), StringComparison.OrdinalIgnoreCase) && u.Status == UserStatus.Active);
-            if (user is null || (await CompanyService.GetForUserAsync(user.Id)).Count != 0)
-            {
-                message = "No active unassigned account matches that email.";
-                severity = Severity.Warning;
-                return;
-            }
-            var updated = await CompanyService.AddMemberAsync(companies[0].Id, user.Id, userId);
-            if (updated is null)
-            {
-                message = "The company is no longer available. Reload the page and try again.";
-                severity = Severity.Warning;
-                return;
-            }
-            companies = await CompanyService.GetForUserAsync(userId);
+            await CompanyService.AddByEmailAsync(companies[0].Id, userId, email);
+            await ReloadAsync();
             email = string.Empty;
             message = "Member added.";
             severity = Severity.Success;
@@ -168,5 +178,64 @@ else
             severity = Severity.Error;
         }
         finally { busy = false; }
+    }
+
+    private async Task ReloadAsync()
+    {
+        companies = await CompanyService.GetForUserAsync(userId);
+        members = isManager ? await CompanyService.GetManagementMembersAsync(companies[0].Id, userId) : [];
+    }
+
+    private async Task RunAsync(Func<Task> action, string success)
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            await action();
+            await ReloadAsync();
+            message = success;
+            severity = Severity.Success;
+        }
+        catch (DomainException exception)
+        {
+            message = exception.Message;
+            severity = Severity.Warning;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Company operation failed for user {UserId}", userId);
+            message = "The company operation failed. Please try again.";
+            severity = Severity.Error;
+        }
+        finally { busy = false; }
+    }
+
+    private Task JoinAsync() => RunAsync(async () =>
+    {
+        await CompanyService.JoinAsync(joinCode, userId);
+        joinCode = string.Empty;
+    }, "Joined company.");
+
+    private Task RotateAsync(bool admin) => RunAsync(async () =>
+    {
+        generatedCode = await CompanyService.RotateCodeAsync(companies[0].Id, userId, admin);
+        generatedCodeKind = admin ? "administrator" : "member";
+    }, "A new code was generated. Copy it before leaving this page.");
+
+    private Task ChangeRoleAsync(CompanyManagementMemberDto member) => RunAsync(
+        () => CompanyService.ChangeRoleAsync(companies[0].Id, userId, member.UserId, member.Role != "Administrator"),
+        "Member role updated.");
+
+    private async Task TransferAsync(Guid successor)
+    {
+        if (!await JavaScript.InvokeAsync<bool>("confirm",
+                "Transfer ownership? The administrator join code will be invalidated."))
+            return;
+        await RunAsync(async () =>
+        {
+            await CompanyService.TransferOwnershipAsync(companies[0].Id, userId, successor);
+            generatedCode = null;
+        }, "Ownership transferred.");
     }
 }

@@ -13,6 +13,7 @@ public sealed class Event : Entity
     public DateTimeOffset StartsAtUtc { get; private set; }
     public DateTimeOffset EndsAtUtc { get; private set; }
     public bool IsAllDay { get; private set; }
+    public Guid? CompanyId { get; private set; }
     public Guid? DepartmentId { get; private set; }
     public IReadOnlyCollection<EventParticipant> Participants => _participants;
 
@@ -27,12 +28,14 @@ public sealed class Event : Entity
         bool isAllDay,
         Guid organizerUserId,
         Guid? departmentId = null,
-        string? description = null)
+        string? description = null,
+        Guid? companyId = null)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new DomainException("Event title is required.");
         if (organizerUserId == Guid.Empty) throw new DomainException("An organizer is required.");
         ValidateSchedule(startsAt, endsAt);
         if (departmentId == Guid.Empty) throw new DomainException("Department id cannot be empty.");
+        if (companyId == Guid.Empty) throw new DomainException("Company id cannot be empty.");
 
         var @event = new Event(title.Trim())
         {
@@ -40,6 +43,7 @@ public sealed class Event : Entity
             StartsAtUtc = startsAt.ToUniversalTime(),
             EndsAtUtc = endsAt.ToUniversalTime(),
             IsAllDay = isAllDay,
+            CompanyId = companyId,
             DepartmentId = departmentId
         };
         @event.AddParticipant(organizerUserId, EventRole.Organizer);
