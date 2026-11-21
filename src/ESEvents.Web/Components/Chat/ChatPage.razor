@@ -9,7 +9,6 @@
 @inject ISignalRService SignalRService
 @inject IChatService ChatService
 @inject ICompanyService CompanyService
-@inject IUserService UserService
 @inject ILogger<ChatPage> Logger
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager NavigationManager
@@ -62,43 +61,8 @@
     @if (availableCompanies.Count == 0)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-4">
-            @if (isAdministrator)
-            {
-                <MudText Typo="Typo.subtitle1">Create a company to set up chat</MudText>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-2">
-                    <MudTextField T="string" Label="Company name" @bind-Value="newCompanyName"
-                                  Variant="Variant.Outlined" Dense="true" />
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                               Disabled="isCreatingCompany || string.IsNullOrWhiteSpace(newCompanyName)"
-                               OnClick="CreateCompanyAsync">
-                        Create company
-                    </MudButton>
-                </MudStack>
-            }
-            else
-            {
-                <MudText>Your account is not a member of a company yet. Ask a company administrator to add you.</MudText>
-            }
+            <MudText>Your account is not a member of a company yet. Visit <a href="/ui/company">Company</a> for setup or ask an administrator to add you.</MudText>
         </MudAlert>
-    }
-    else if (isAdministrator && companyUsers.Count > 0)
-    {
-        <MudPaper Class="pa-3 mb-4" Elevation="1">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                <MudAutocomplete T="Guid?" Label="Add an active company member"
-                                 Value="memberToAddUserId"
-                                 ValueChanged="SetMemberToAddUserId"
-                                 SearchFunc="SearchCompanyUsersAsync"
-                                 ToStringFunc="GetCompanyUserName"
-                                 Variant="Variant.Outlined" Dense="true" Clearable="true"
-                                 MinCharacters="0" OpenOnFocus="true" ResetValueOnEmptyText="true" Style="max-width: 360px;" />
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                           Disabled="!memberToAddUserId.HasValue || isAddingMember"
-                           OnClick="AddCompanyMemberAsync">
-                    Add member
-                </MudButton>
-            </MudStack>
-        </MudPaper>
     }
 
     <MudGrid Spacing="2" Class="chat-page">
@@ -177,20 +141,14 @@
     
     private List<CompanyDto> availableCompanies = new();
     private List<CompanyMemberDto> companyMembers = new();
-    private List<UserDto> companyUsers = new();
     private List<ConversationDto> conversations = new();
     private List<ChatMessageDto> messages = new();
     private ConversationDto? selectedConversation;
     private Guid? newConversationUserId;
-    private Guid? memberToAddUserId;
-    private string newCompanyName = "";
     
     private Guid currentUserId;
     private Guid companyId;
-    private bool isAdministrator;
     private bool isCreatingConversation;
-    private bool isCreatingCompany;
-    private bool isAddingMember;
     private bool signalRHandlersRegistered;
     
     private bool isConnected = false;
@@ -226,23 +184,12 @@
                 return;
             }
 
-            isAdministrator = user.HasClaim("system_role", "Administrator");
             availableCompanies = (await CompanyService.GetForUserAsync(currentUserId)).ToList();
             if (availableCompanies.Count == 0)
-            {
-                if (isAdministrator)
-                    companyUsers = (await UserService.GetAllAsync())
-                        .Where(item => item.Id != currentUserId && item.Status == ESEvents.Domain.Users.UserStatus.Active)
-                        .ToList();
                 return;
-            }
 
             companyId = availableCompanies[0].Id;
             companyMembers = (await ChatService.GetCompanyMembersAsync(companyId, currentUserId)).ToList();
-            if (isAdministrator)
-                companyUsers = (await UserService.GetAllAsync())
-                    .Where(item => item.Id != currentUserId && item.Status == ESEvents.Domain.Users.UserStatus.Active)
-                    .ToList();
             
             // Load conversations first (don't require SignalR)
             try
@@ -503,62 +450,6 @@
         return Task.CompletedTask;
     }
 
-    private async Task CreateCompanyAsync()
-    {
-        if (!isAdministrator || string.IsNullOrWhiteSpace(newCompanyName)) return;
-
-        isCreatingCompany = true;
-        try
-        {
-            var company = await CompanyService.CreateAsync(newCompanyName, currentUserId);
-            availableCompanies.Add(company);
-            companyId = company.Id;
-            newCompanyName = "";
-            companyMembers = (await ChatService.GetCompanyMembersAsync(companyId, currentUserId)).ToList();
-            await ConnectToCompanyAsync();
-            Snackbar.Add($"Company '{company.Name}' created. Add members to start chatting.", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error creating company for chat");
-            Snackbar.Add($"Could not create company: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            isCreatingCompany = false;
-        }
-    }
-
-    private async Task AddCompanyMemberAsync()
-    {
-        if (!isAdministrator || !memberToAddUserId.HasValue) return;
-
-        isAddingMember = true;
-        try
-        {
-            var updated = await CompanyService.AddMemberAsync(companyId, memberToAddUserId.Value);
-            if (updated is null)
-            {
-                Snackbar.Add("The selected company no longer exists.", Severity.Error);
-                return;
-            }
-
-            availableCompanies[availableCompanies.FindIndex(item => item.Id == companyId)] = updated;
-            companyMembers = (await ChatService.GetCompanyMembersAsync(companyId, currentUserId)).ToList();
-            memberToAddUserId = null;
-            Snackbar.Add("Company member added. They can now start a chat.", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error adding company chat member");
-            Snackbar.Add($"Could not add member: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            isAddingMember = false;
-        }
-    }
-
     private async Task ConnectToCompanyAsync()
     {
         SubscribeToRealtimeEvents();
@@ -621,29 +512,6 @@
     private Task SetNewConversationUserId(Guid? userId)
     {
         newConversationUserId = userId;
-        return Task.CompletedTask;
-    }
-
-    private Task<IEnumerable<Guid?>> SearchCompanyUsersAsync(string value, CancellationToken cancellationToken)
-    {
-        var existingMemberIds = companyMembers.Select(item => item.UserId).Append(currentUserId).ToHashSet();
-        IEnumerable<Guid?> results = companyUsers
-            .Where(user => !existingMemberIds.Contains(user.Id) &&
-                           $"{user.FirstName} {user.LastName} {user.Email}"
-                               .Contains(value, StringComparison.OrdinalIgnoreCase))
-            .Select(user => (Guid?)user.Id);
-        return Task.FromResult(results);
-    }
-
-    private string GetCompanyUserName(Guid? userId)
-    {
-        var user = companyUsers.FirstOrDefault(item => item.Id == userId);
-        return user is null ? "" : $"{user.FirstName} {user.LastName} ({user.Email})";
-    }
-
-    private Task SetMemberToAddUserId(Guid? userId)
-    {
-        memberToAddUserId = userId;
         return Task.CompletedTask;
     }
 

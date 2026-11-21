@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject IUserService Users
 @inject IDepartmentService DepartmentService
+@inject ESEvents.Application.Companies.ICompanyService CompanyService
 @inject IJSRuntime JavaScript
 @inject NavigationManager Navigation
 
@@ -16,6 +17,7 @@ else
     <MudPaper Class="page-panel profile-panel" Elevation="1">
         <MudText Typo="Typo.subtitle1">@profile.Email</MudText>
         <MudText Typo="Typo.body2" Class="status-line">@profile.SystemRole · @profile.Status</MudText>
+        <MudText Typo="Typo.body2" Class="status-line">Company: @companyLabel</MudText>
         <MudText Typo="Typo.body2" Class="status-line">
             Departments: @(departments.Count == 0 ? "none" : string.Join(", ", departments.Select(d => d.Name)))
         </MudText>
@@ -38,6 +40,7 @@ else
 
     private UserDto? profile;
     private IReadOnlyList<DepartmentDto> departments = [];
+    private string companyLabel = "Unassigned";
     private Guid userId;
     private string firstName = string.Empty;
     private string lastName = string.Empty;
@@ -57,6 +60,13 @@ else
             return;
 
         departments = await DepartmentService.GetForUserAsync(userId);
+        var companies = await CompanyService.GetForUserAsync(userId);
+        companyLabel = companies.Count switch
+        {
+            0 => "Unassigned",
+            1 => companies[0].Name,
+            _ => "Multiple companies (requires review)"
+        };
 
         firstName = profile.FirstName;
         lastName = profile.LastName;

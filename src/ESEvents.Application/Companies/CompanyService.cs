@@ -10,6 +10,8 @@ public sealed class CompanyService(ICompanyRepository companies) : ICompanyServi
         if (creatorId == Guid.Empty) throw new DomainException("A company creator is required.");
         if (!await companies.IsActiveUserAsync(creatorId, ct))
             throw new UnauthorizedAccessException("Only an active user can create a company.");
+        if ((await companies.GetForUserAsync(creatorId, ct)).Count != 0)
+            throw new DomainConflictException("You are already assigned to a company.");
 
         var company = Company.Create(name);
         if (await companies.NameExistsAsync(company.NormalizedName, ct))
@@ -37,20 +39,24 @@ public sealed class CompanyService(ICompanyRepository companies) : ICompanyServi
         return await companies.GetActiveMembersAsync(companyId, requesterId, ct);
     }
 
-    public async Task<CompanyDto?> AddMemberAsync(Guid companyId, Guid userId, CancellationToken ct = default)
+    public async Task<CompanyDto?> AddMemberAsync(Guid companyId, Guid userId, Guid requesterId, CancellationToken ct = default)
     {
+        await EnsureMemberAsync(companyId, requesterId, ct);
         var company = await companies.GetByIdAsync(companyId, ct);
         if (company is null) return null;
         if (!await companies.IsActiveUserAsync(userId, ct))
             throw new DomainException("Only active users can be added to a company.");
+        if ((await companies.GetForUserAsync(userId, ct)).Count != 0)
+            throw new DomainConflictException("The user is already assigned to a company.");
 
         company.AddMember(userId);
         await companies.SaveChangesAsync(ct);
         return ToDto(company);
     }
 
-    public async Task<CompanyDto?> RemoveMemberAsync(Guid companyId, Guid userId, CancellationToken ct = default)
+    public async Task<CompanyDto?> RemoveMemberAsync(Guid companyId, Guid userId, Guid requesterId, CancellationToken ct = default)
     {
+        await EnsureMemberAsync(companyId, requesterId, ct);
         var company = await companies.GetByIdAsync(companyId, ct);
         if (company is null) return null;
 

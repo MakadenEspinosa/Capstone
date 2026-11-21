@@ -63,6 +63,20 @@ matching the calendar's event-details view.
 Dates and times are shown in your browser's time zone, which is labeled in the
 report. Excel dates are stored as date/time values for sorting and filtering.
 
+## Company management (in progress)
+
+The Company page moves the existing company setup out of chat. Platform
+administrators can create a company for an unassigned account and add an active,
+unassigned user by exact email. Profiles display the company name, `Unassigned`,
+or a legacy multiple-membership warning.
+
+**Company data is not isolated yet. Do not use the application for confidential
+data from separate companies.** Company-specific administrator roles, join codes,
+ownership transfer, safe member removal, and the legacy-data migration have not
+been implemented. The current checks against multiple company membership do not
+yet provide a database-level concurrency guarantee. Existing events and
+departments have not been deleted or migrated.
+
 ## Repository structure
 
 ```text

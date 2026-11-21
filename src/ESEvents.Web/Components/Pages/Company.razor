@@ -1,0 +1,172 @@
+@page "/ui/company"
+@attribute [Authorize]
+@using ESEvents.Application.Companies
+@using ESEvents.Domain.Common
+@inject ICompanyService CompanyService
+@inject IUserService UserService
+@inject ILogger<Company> Logger
+
+<PageTitle>Company | E-S Events</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Company</MudText>
+<MudAlert Severity="Severity.Warning" Class="form-alert">
+    Company isolation and join codes are not implemented yet. Do not use this application for
+    separate companies' private data until company isolation is complete.
+</MudAlert>
+@if (!string.IsNullOrEmpty(message))
+{
+    <MudAlert Severity="@severity" Class="form-alert">@message</MudAlert>
+}
+@if (loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (loadFailed)
+{
+    <MudText>Company details are unavailable.</MudText>
+}
+else if (companies.Count == 0)
+{
+    <MudPaper Class="page-panel" Elevation="1">
+        <MudText>Your account is unassigned.</MudText>
+        @if (isPlatformAdministrator)
+        {
+            <MudTextField T="string" Label="Company name" @bind-Value="companyName" MaxLength="150" Class="field-gap" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@busy">Create company</MudButton>
+        }
+        else
+        {
+            <MudText>Ask a platform administrator to add your account. Company join codes are not available yet.</MudText>
+        }
+    </MudPaper>
+}
+else if (companies.Count > 1)
+{
+    <MudAlert Severity="Severity.Error">Your account belongs to multiple companies. A platform administrator must resolve this legacy membership before company onboarding can be completed.</MudAlert>
+}
+else
+{
+    <MudPaper Class="page-panel" Elevation="1">
+        <MudText Typo="Typo.h6">@companies[0].Name</MudText>
+        <MudText>Members: @companies[0].MemberCount</MudText>
+        @if (isPlatformAdministrator)
+        {
+            <MudTextField T="string" Label="Exact email of unassigned user" @bind-Value="email" InputType="InputType.Email" Class="field-gap" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddMemberAsync" Disabled="@busy">Add member</MudButton>
+        }
+    </MudPaper>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private IReadOnlyList<CompanyDto> companies = [];
+    private Guid userId;
+    private bool isPlatformAdministrator;
+    private bool loading = true;
+    private bool loadFailed;
+    private bool busy;
+    private string companyName = string.Empty;
+    private string email = string.Empty;
+    private string? message;
+    private Severity severity = Severity.Info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateTask;
+        if (!Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out userId))
+        {
+            message = "Your account could not be identified. Please sign in again.";
+            severity = Severity.Error;
+            loadFailed = true;
+            loading = false;
+            return;
+        }
+        isPlatformAdministrator = state.User.HasClaim("system_role", "Administrator");
+        try
+        {
+            companies = await CompanyService.GetForUserAsync(userId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load company for user {UserId}", userId);
+            message = "Could not load your company. Please try again.";
+            severity = Severity.Error;
+            loadFailed = true;
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        if (!isPlatformAdministrator || busy) return;
+        busy = true;
+        try
+        {
+            await CompanyService.CreateAsync(companyName, userId);
+            companies = await CompanyService.GetForUserAsync(userId);
+            companyName = string.Empty;
+            message = "Company created.";
+            severity = Severity.Success;
+        }
+        catch (DomainException exception)
+        {
+            message = exception.Message;
+            severity = Severity.Warning;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not create company for user {UserId}", userId);
+            message = "Could not create the company. Please try again.";
+            severity = Severity.Error;
+        }
+        finally { busy = false; }
+    }
+
+    private async Task AddMemberAsync()
+    {
+        if (!isPlatformAdministrator || busy || companies.Count != 1) return;
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            message = "Enter the user's exact email.";
+            severity = Severity.Warning;
+            return;
+        }
+        busy = true;
+        try
+        {
+            var user = (await UserService.GetAllAsync()).FirstOrDefault(u =>
+                string.Equals(u.Email, email.Trim(), StringComparison.OrdinalIgnoreCase) && u.Status == UserStatus.Active);
+            if (user is null || (await CompanyService.GetForUserAsync(user.Id)).Count != 0)
+            {
+                message = "No active unassigned account matches that email.";
+                severity = Severity.Warning;
+                return;
+            }
+            var updated = await CompanyService.AddMemberAsync(companies[0].Id, user.Id, userId);
+            if (updated is null)
+            {
+                message = "The company is no longer available. Reload the page and try again.";
+                severity = Severity.Warning;
+                return;
+            }
+            companies = await CompanyService.GetForUserAsync(userId);
+            email = string.Empty;
+            message = "Member added.";
+            severity = Severity.Success;
+        }
+        catch (DomainException exception)
+        {
+            message = exception.Message;
+            severity = Severity.Warning;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not add company member for administrator {UserId}", userId);
+            message = "Could not add the member. Please try again.";
+            severity = Severity.Error;
+        }
+        finally { busy = false; }
+    }
+}

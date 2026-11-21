@@ -55,7 +55,8 @@ public sealed class CompaniesController(ICompanyService companies) : ControllerB
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<CompanyDto>> AddMember(Guid companyId, Guid userId, CancellationToken ct)
     {
-        var company = await companies.AddMemberAsync(companyId, userId, ct);
+        if (!TryGetUserId(out var requesterId)) return Unauthorized();
+        var company = await companies.AddMemberAsync(companyId, userId, requesterId, ct);
         return company is null ? NotFound() : Ok(company);
     }
 
@@ -65,7 +66,8 @@ public sealed class CompaniesController(ICompanyService companies) : ControllerB
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveMember(Guid companyId, Guid userId, CancellationToken ct)
     {
-        var company = await companies.RemoveMemberAsync(companyId, userId, ct);
+        if (!TryGetUserId(out var requesterId)) return Unauthorized();
+        var company = await companies.RemoveMemberAsync(companyId, userId, requesterId, ct);
         return company is null ? NotFound() : NoContent();
     }
 

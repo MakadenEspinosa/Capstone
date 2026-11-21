@@ -102,10 +102,10 @@ public sealed class ChatServiceTests
                 .ToArray();
         }
 
-        public Task<CompanyDto?> AddMemberAsync(Guid id, Guid userId, CancellationToken ct = default) =>
+        public Task<CompanyDto?> AddMemberAsync(Guid id, Guid userId, Guid requesterId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
-        public Task<CompanyDto?> RemoveMemberAsync(Guid id, Guid userId, CancellationToken ct = default) =>
+        public Task<CompanyDto?> RemoveMemberAsync(Guid id, Guid userId, Guid requesterId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
         public Task<IReadOnlyList<Guid>> GetCompanyIdsForUserAsync(Guid userId, CancellationToken ct = default) =>
